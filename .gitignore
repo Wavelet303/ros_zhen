@@ -28,3 +28,6 @@
 *.app
 
 baxter.sh
+.kdev4/
+*~
+*.kdev4

@@ -6,7 +6,6 @@
 #include "dmp.h"
 #include <iostream>
 #include <math.h>
-#include "discpp.h"
 
 DMP::DMP(int n_basis)
 {
@@ -25,7 +24,7 @@ DMP::DMP(int n_basis)
 	
 	//set variance of basis kernel functions (std_var = 0.2*|c_i-c_{i-1}|)
 	_basis_sigmas.setZero(_n_basis);
-	_basis_sigmas.block(0,0,_n_basis-1,1) = _basis_centers.block(1,0,_n_basis,1);
+	_basis_sigmas.block(0,0,_n_basis-1,1) = _basis_centers.block(1,0,_n_basis-1,1);
 	_basis_sigmas = _basis_sigmas - _basis_centers;
 	_basis_sigmas[_n_basis-1] = _basis_sigmas[_n_basis-2];
 	_basis_sigmas = _basis_sigmas*0.2;
@@ -202,7 +201,7 @@ std::vector< Eigen::VectorXd > DMP::batch_fit(double duration, double dt, Eigen:
 	if(Td.size()==0)
 	{
 		Td.setZero(T_length);
-		Td.block(0,0,T_length-1,1) = T.block(1,0,T_length,1);
+		Td.block(0,0,T_length-1,1) = T.block(1,0,T_length-1,1);
 		Td = Td - T;
 		Td[T_length-1] = 0;
 		Td = Td/dt;
@@ -211,7 +210,7 @@ std::vector< Eigen::VectorXd > DMP::batch_fit(double duration, double dt, Eigen:
 	if(Tdd.size()==0)
 	{
 		Tdd.setZero(T_length);
-		Tdd.block(0,0,T_length-1,1) = Td.block(1,0,T_length,1);
+		Tdd.block(0,0,T_length-1,1) = Td.block(1,0,T_length-1,1);
 		Tdd = Tdd - Td;
 		Tdd[T_length-1] = 0;
 		Tdd = Tdd/dt;
@@ -274,22 +273,28 @@ std::vector< Eigen::VectorXd > DMP::batch_fit(double duration, double dt, Eigen:
 	PSI_array = PSI_array.exp();
 	Eigen::Map<Eigen::MatrixXd> PSI(PSI_array.data(), PSI_array.rows(), PSI_array.cols());
 	
+	
 	//compute the regression
 	copyX = X;
 	X_array = X_array.pow(2);
 	Eigen::MatrixXd copyXsquare = copyX*row_ones.transpose();
 	Eigen::MatrixXd sx2 = copyXsquare.cwiseProduct(PSI);
-	Eigen::ArrayXd sx2_array = sx2.colwise().sum();
+	Eigen::VectorXd sx2_vec = sx2.colwise().sum();
+	Eigen::Map<Eigen::ArrayXd> sx2_array(sx2_vec.data(),_n_basis,1);
+	
 	
 	copyX = X;
 	X_array = X_array*Ft_array;
 	copyXsquare = copyX*row_ones.transpose();
 	Eigen::MatrixXd sxtd = copyXsquare.cwiseProduct(PSI);
-	Eigen::ArrayXd sxtd_array = sxtd.colwise().sum();
+	Eigen::VectorXd sxtd_vec = sxtd.colwise().sum();
+	Eigen::Map<Eigen::ArrayXd> sxtd_array(sxtd_vec.data(),_n_basis,1);
 	
 	Eigen::ArrayXd w_array = sxtd_array/(sx2_array+1e-10);
 	Eigen::Map<Eigen::VectorXd> w(w_array.data(), _n_basis, 1);
 	_w = w;
+	
+// 	std::cout << _w << std::endl;
 	
 	//compute the prediction
 	Eigen::MatrixXd xmulw = X*_w.transpose();
@@ -343,26 +348,26 @@ std::vector< Eigen::VectorXd > DMP::batch_fit(double duration, double dt, Eigen:
 	error = std::sqrt(error/T_length);
 	std::cout << "DMP regression RMS error = " << error << std::endl;
 	
-	Dislin dislin_plot;
-	double time[T_length], T_plot[T_length], Y_plot[T_length];
-	for(int i=0; i<T_length; i++)
-	{
-		T_plot[i] = T(i);
-		Y_plot[i] = Y(i);
-		time[i] = dt*i;
-	}
-	dislin_plot.titlin ("DMP batch fitting", 1);
-	dislin_plot.color  ("fore");
-	dislin_plot.height (50);
-	dislin_plot.title  ();
-	
-	dislin_plot.name   ("time/s", "x");
-	dislin_plot.name   ("position/m", "y");
-	
-	dislin_plot.color  ("green");
-	dislin_plot.curve  (time, T_plot, T_length);
-	dislin_plot.color  ("red");
-	dislin_plot.curve  (time, Y_plot, T_length);
+// 	Dislin dislin_plot;
+// 	double time[T_length], T_plot[T_length], Y_plot[T_length];
+// 	for(int i=0; i<T_length; i++)
+// 	{
+// 		T_plot[i] = T(i);
+// 		Y_plot[i] = Y(i);
+// 		time[i] = dt*i;
+// 	}
+// 	dislin_plot.titlin ("DMP batch fitting", 1);
+// 	dislin_plot.color  ("fore");
+// 	dislin_plot.height (50);
+// 	dislin_plot.title  ();
+// 	
+// 	dislin_plot.name   ("time/s", "x");
+// 	dislin_plot.name   ("position/m", "y");
+// 	
+// 	dislin_plot.color  ("green");
+// 	dislin_plot.curve  (time, T_plot, T_length);
+// 	dislin_plot.color  ("red");
+// 	dislin_plot.curve  (time, Y_plot, T_length);
 // 	dislin_plot.disfin ();
 	
 	return output;

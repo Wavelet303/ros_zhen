@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(dmp_cpp)
+project(pi2_cpp)
+
+set(CMAKE_CXX_FLAGS "-Wall -std=c++11")
 
 # set(Boost_DIR /home/zengzhen/Documents/boost_1_56_0)
 # set(Boost_ADDITIONAL_VERSIONS "1.56" "1.56.0")
@@ -94,23 +96,25 @@ include_directories(
     include
     ${catkin_INCLUDE_DIRS}
     ${EIGEN_INCLUDE_DIRS}
+    /home/zengzhen/Documents/ros_zhen/src/dmp_cpp/include
 )
 
 ## Declare a cpp library
-add_library(DMP src/dmp.cpp)
+add_library(PI2 src/pi2.cpp)
 
 ## Declare a cpp executable
-add_executable(dmp_example src/tools/dmp_example.cpp)
+add_executable(pi2_example src/tools/pi2_example.cpp)
 
 
 target_link_libraries(
-    DMP
+    PI2
     ${catkin_LIBRARIES}
+    /home/zengzhen/Documents/ros_zhen/devel/lib/libDMP.so
 )
 
 target_link_libraries(
-    dmp_example
-    DMP
+    pi2_example
+    PI2
 )
 
 #############

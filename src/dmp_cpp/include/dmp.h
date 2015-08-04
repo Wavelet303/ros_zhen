@@ -66,6 +66,10 @@ public:
 	
 	Eigen::MatrixXd readMatrix(const char *filename);
 	
+	inline Eigen::VectorXd getW() {return _w;};
+	
+	inline Eigen::VectorXd getPsi() {return _psi;};
+	
 private:
 	double _alpha_z;
 	double _beta_z;

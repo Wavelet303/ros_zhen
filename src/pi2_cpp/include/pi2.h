@@ -32,13 +32,37 @@ struct PI2DMP{
 	Eigen::MatrixXd bases;
 	Eigen::MatrixXd theta_eps;
 	Eigen::MatrixXd psi;
+	
+	PI2DMP(int steps, int n_basis)
+	{
+		y.setZero(steps);
+		yd.setZero(steps);
+		ydd.setZero(steps);
+		bases.setZero(steps, n_basis);
+		theta_eps.setZero(steps, n_basis);
+		psi.setZero(1,n_basis);
+	}
 };
+
+
 
 struct PI2Data{
 	std::vector<PI2DMP> dmp;
 	double duration;
 	double dt;
 	std::vector<double> goal;
+	
+	PI2Data(int steps, int n_dmps, int n_basis, double input_duration, double input_dt, std::vector< double > input_goal)
+	{
+		for(int i=0; i<n_dmps; i++)
+		{
+			PI2DMP dmp_temp(steps, n_basis);
+			dmp.push_back(dmp_temp);
+		}
+		duration = input_duration;
+		dt = input_dt;
+		goal = input_goal;
+	}
 };
 
 class PI2 {
@@ -63,7 +87,19 @@ public:
 	 *  \param[in] p protocol to follow
 	 *  \param[in] noise_mult noise multiplier applied to exploration noise
 	 */
-	PI2Data run_rollouts(std::vector<PI2Data> D, PI2Protocol p, double noise_mult);
+	void run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult);
+	
+	/** \brief calculate cost of given data of each roll-outs
+	 *  \param[in] D data structures to store each roll-outs data
+	 *  \return matrix with rt at each step for each roll-outs(column)
+	 */
+	Eigen::MatrixXd cost(std::vector<PI2Data> D);
+	
+	/** \brief update w based on roll-outs data and corresponding cost
+	 *  \param[in] D data structures to store each roll-outs data
+	 *  \param[in] R matrix of cost for for each roll-outs(col) at each time step(row)
+	 */
+	void updatePI2(std::vector<PI2Data> D, Eigen::MatrixXd R);
 	
 private:
 	int _n_basis;

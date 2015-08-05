@@ -81,6 +81,7 @@ void PI2::readProtocol(std::string protocol_name)
 			>>_protocol.n_reuse))
 		{
 			std::cout << "error reading porotocol file\n";
+            exit(1);
 		}
 	}
 	std::cout << _protocol.cost_function << "\n";
@@ -88,8 +89,10 @@ void PI2::readProtocol(std::string protocol_name)
 
 void PI2::runProtocol()
 {
+    Eigen::IOFormat HeavyFmt(Eigen::FullPrecision);
+    
 	double dt = 0.01;
-	int n = (int)_protocol.duration / dt;
+	int n = round(_protocol.duration / dt);
 	
 	PI2Data D(n, _n_dmps, _n_basis, _protocol.duration, dt, _protocol.goal);
 	
@@ -103,7 +106,7 @@ void PI2::runProtocol()
 	std::vector<PI2Data> D_series;
 	for(int i=0; i<_protocol.reps; i++)
 	{
-		PI2Data copyD = D;
+		PI2Data copyD(n, _n_dmps, _n_basis, _protocol.duration, dt, _protocol.goal);
 		D_series.push_back(copyD);
 	}
 	std::vector<PI2Data> D_eval_series;
@@ -115,10 +118,14 @@ void PI2::runProtocol()
 	
 	for(int i=0; i<_protocol.updates;i++)
 	{
+        std::cout << "running roll-outs for Deval\n";
 		run_rollouts(D_eval_series, p_eval,1);
 		
 		//compute all costs in batch form, as this is faster in matlab
 		Eigen::MatrixXd R_eval = cost(D_eval_series);
+        
+        std::cout << R_eval.format(HeavyFmt) << std::endl;
+        exit(1);
 		
 		if(i==0)
 		{
@@ -137,12 +144,14 @@ void PI2::runProtocol()
 		//run learning roll-outs with a noise annealing multiplier
 		double noise_mult = (double)(_protocol.updates-i-1)/(double)_protocol.updates;
 		noise_mult = std::max(noise_mult, 0.1);
+        std::cout << "running roll-outs for D\n";
 		run_rollouts(D_series, _protocol, noise_mult);
 		
 		//compute all costs in batch form, as this is faster in Matlab
 		Eigen::MatrixXd R = cost(D_series);
 		
 		//perform the PI2 update
+        printf("calculating update loop %d\n", i);
 		updatePI2(D_series, R);
 		
 		//reuse of roll-outs: the n_reuse best trials and re-evaluate them the next update in
@@ -163,6 +172,7 @@ void PI2::runProtocol()
 	}
 	
 	//perform the final noiseless evaluation to get the final cost
+	std::cout << "running roll-outs for Deval -- final\n";
 	run_rollouts(D_eval_series, p_eval, 1);
 	Eigen::MatrixXd R_eval = cost(D_eval_series);
 	T(_protocol.updates,0) = _protocol.updates*(_protocol.reps-_protocol.n_reuse)+_protocol.n_reuse+1;
@@ -190,13 +200,13 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 		
 		
 		//integrate through the duration
-		for(int n=0; n<(int)p.duration/dt; n++)
+		for(int n=0; n<(int)round(p.duration/dt); n++)
 		{
 			double std_eps = p.stdv * noise_mult;
 			
 			for(int j=0; j<_n_dmps; j++)
 			{
-				std::cout << "loop" << k << " " << n << " " << j << std::endl;
+// 				printf("loop k=%d, n=%d, j=%d\n", k, n, j);
 				
 				Eigen::VectorXd epsilon;
 				epsilon.setZero(_n_basis);
@@ -233,25 +243,20 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 						}else
 							epsilon = epsilon_prev.transpose();
 					}
-// 					std::cout << epsilon << std::endl;
-					
 				}
 				
 				//integrate DMP
 				std::vector<Eigen::VectorXd> dmp_stats;
 				dmp_stats = _dmps[j].run(p.duration, dt, 0, 0, 1, 1, epsilon);
-				
-				std::cout << "dmp_stats[0] = " << D[k].dmp[j].y.size() << std::endl;
-				std::cout << "here?" << std::endl;
+                
+// 				std::cout << "here?" << std::endl;
 				//store D
 				D[k].dmp[j].y(n) = dmp_stats[0](0); //y
 				D[k].dmp[j].yd(n) = dmp_stats[1][0]; //yd
-				D[k].dmp[j].ydd(n) = dmp_stats[2][0]; //ydd				
-				D[k].dmp[j].bases.row(n-1) = dmp_stats[3].transpose(); //b
-				D[k].dmp[j].theta_eps.row(n-1) = (_dmps[j].getW() + epsilon).transpose();
-				D[k].dmp[j].psi.row(n-1) = _dmps[j].getPsi().transpose();
-				
-				
+				D[k].dmp[j].ydd(n) = dmp_stats[2][0]; //ydd
+				D[k].dmp[j].bases.row(n) = dmp_stats[3].transpose(); //b 
+				D[k].dmp[j].theta_eps.row(n) = (_dmps[j].getW() + epsilon).transpose();
+				D[k].dmp[j].psi.row(n) = _dmps[j].getPsi().transpose();
 			}
 		}
 	}
@@ -270,6 +275,8 @@ Eigen::MatrixXd PI2::cost(std::vector< PI2Data > D)
 	//compute cost
 	for(int k=0; k<n_reps; k++)
 	{
+//         printf("compute cost loop %d\n", k);
+        
 		Eigen::VectorXd r, rt;
 		r.setZero(n_real);
 		rt.setZero(n-n_real);
@@ -286,6 +293,7 @@ Eigen::MatrixXd PI2::cost(std::vector< PI2Data > D)
 			ones_col.setOnes(ydd.size(),1);
 			r = r + (ones_col-ydd)/n_real;
 		}
+		
 		Eigen::VectorXd rrt;
 		rrt.setZero(r.size()+rt.size());
 		rrt.block(0,0,r.size(),1) = r;
@@ -316,7 +324,7 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 	}
 	S = S.transpose().colwise().reverse();
 	S = S.transpose().colwise().reverse();
-	
+    
 	//compute the exponentiated cost with the special trick to automatically adjust the lambda scaling paramter
 	Eigen::VectorXd maxS, minS;
 	maxS.setZero(S.rows());
@@ -337,12 +345,12 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 	Eigen::MatrixXd nominator = -h*(S - minS*row_ones.transpose());
 	Eigen::MatrixXd expS = nominator.cwiseQuotient(denominator);
 	expS = expS.array().exp();
-	
+    
 	//the probability of a trajectory
 	denominator = expS.rowwise().sum();
 	denominator = denominator*row_ones.transpose();
 	Eigen::MatrixXd P = expS.cwiseQuotient(denominator);
-	
+    
 	//compute the projected noise term. It is computationally more efficient to break this operation into inner product terms
 	std::vector<std::vector<Eigen::MatrixXd>> PMeps;
 	for(int i=0; i<_n_dmps; i++)
@@ -429,14 +437,15 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 	//the time weighting matrix (note that this done based on the true duration of the
 	//movement, while the movement "recording" is done beyond D.duration). Empirically, this
 	//weighting accelerates learning
-	int m = D[0].duration/D[0].dt;
+	int m = (int)round(D[0].duration/D[0].dt);
 	Eigen::VectorXd N;
+    N.setZero(n);
 	for(int i=0; i<m; i++)
 		N(i)=m-i;
 	Eigen::VectorXd col_ones;
 	col_ones.setOnes(n-m);
 	N << col_ones;
-	
+    
 	//the final weighting vector takes the kernel activation into account
 	row_ones.setOnes(_n_basis);
 	Eigen::MatrixXd W = (N*row_ones.transpose()).cwiseProduct(D[0].dmp[0].psi);
@@ -444,7 +453,7 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 	//...and normalize through time
 	col_ones.setOnes(n);
 	W = W.cwiseQuotient(col_ones*W.colwise().sum());
-	
+    
 	//compute the final parameter update for each DMP
 	std::vector<Eigen::MatrixXd> processed_W;
 	for(int i=0; i<_n_basis; i++)
@@ -453,19 +462,21 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 		processed_W_member.setZero(_n_dmps,n);
 		for(int j=0; j<_n_dmps; j++)
 			processed_W_member.row(j) = W.col(i).transpose();
+        processed_W.push_back(processed_W_member);
 	}
+	
 	std::vector<Eigen::MatrixXd> dtheta_mult_W;
 	for(int i=0; i<_n_basis; i++)
 		dtheta_mult_W.push_back(squeezed_dtheta[i].cwiseProduct(processed_W[i]));
 	for(int i=0; i<_n_basis; i++)
 		dtheta_mult_W[i] = dtheta_mult_W[i].rowwise().sum();
-	
+    
 	Eigen::MatrixXd final_dtheta;
 	final_dtheta.setZero(_n_dmps,_n_basis);
 	for(int i=0; i<_n_dmps; i++)
 		for(int j=0; j<_n_basis; j++)
 			final_dtheta(i,j) = dtheta_mult_W[j](i);
-	
+        
 	//and update the parameters by changing w in _dmps
 	for(int i=0; i<_n_dmps; i++)
 	{

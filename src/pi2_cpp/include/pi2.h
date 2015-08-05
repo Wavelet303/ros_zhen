@@ -40,7 +40,7 @@ struct PI2DMP{
 		ydd.setZero(steps);
 		bases.setZero(steps, n_basis);
 		theta_eps.setZero(steps, n_basis);
-		psi.setZero(1,n_basis);
+		psi.setZero(steps,n_basis);
 	}
 };
 

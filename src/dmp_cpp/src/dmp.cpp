@@ -182,6 +182,11 @@ std::vector< Eigen::VectorXd > DMP::run(double duration, double dt, double ct, d
 	Eigen::VectorXd w_multipliers;
 	w_multipliers = _psi*in/safe_psi_array.sum()*amp;
 	output.push_back(w_multipliers);
+    
+//     std::cout << "run: w_multipliers = " << w_multipliers.transpose() << std::endl;
+//     std::cout << "run: y = " << y.transpose() << std::endl;
+//     std::cout << "run: yd = " << yd.transpose() << std::endl;
+//     std::cout << "run: ydd = " << ydd.transpose() << std::endl;
 	
 	return output;
 }

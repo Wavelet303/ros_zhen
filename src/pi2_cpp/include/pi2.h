@@ -87,7 +87,7 @@ public:
 	 *  \param[in] p protocol to follow
 	 *  \param[in] noise_mult noise multiplier applied to exploration noise
 	 */
-	void run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult);
+	void run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult, std::ifstream* infile = NULL);
 	
 	/** \brief calculate cost of given data of each roll-outs
 	 *  \param[in] D data structures to store each roll-outs data
@@ -112,6 +112,8 @@ private:
 	// random number generator based on normal distribution
 	std::default_random_engine _generator;
 	std::normal_distribution<double> _distribution;
+	
+	Eigen::IOFormat _HeavyFmt;
 };
 
 #endif  // PI2_H

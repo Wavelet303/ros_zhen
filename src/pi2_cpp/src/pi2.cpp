@@ -91,7 +91,7 @@ void PI2::readProtocol(std::string protocol_name)
 void PI2::runProtocol()
 {
 	double dt = 0.01;
-	int n = round(_protocol.duration / dt);
+	int n = 2*(int)round(_protocol.duration / dt);
 	
 	PI2Data D(n, _n_dmps, _n_basis, _protocol.duration, dt, _protocol.goal);
 	
@@ -173,7 +173,7 @@ void PI2::runProtocol()
 	T(_protocol.updates,0) = _protocol.updates*(_protocol.reps-_protocol.n_reuse)+_protocol.n_reuse+1;
 	T(_protocol.updates,1) = R_eval.colwise().sum()(0);
 	
-	std::cout << "cost trace = " << T.col(1).transpose() << std::endl;
+	std::cout << "cost trace = " << T.col(1).transpose().format(_HeavyFmt) << std::endl;
 }
 
 void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult, std::ifstream* infile)
@@ -187,6 +187,7 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 	if(D[0].dmp[0].psi(0,0)==0) //indicates very first batch of run_rollouts
 		start = 0;
 	
+	// generate desired trajectory
 	for(int k = start; k<p.reps; k++ )
 	{
 		//reset the DMP
@@ -196,9 +197,8 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 			_dmps[j].set_goal(p.goal[j], 1);
 		}
 		
-		
 		//integrate through the duration
-		for(int n=0; n<(int)round(p.duration/dt); n++)
+		for(int n=0; n<D[k].dmp[0].y.size(); n++)
 		{
 			double std_eps = p.stdv * noise_mult;
 			
@@ -276,6 +276,10 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 					}
 				}
 				
+				//after duration/dt no noise is added anymore
+				if(n >= (int)round(p.duration/dt))
+					epsilon.setZero(_n_basis);
+				
 				//integrate DMP
 				std::vector<Eigen::VectorXd> dmp_stats;
 				dmp_stats = _dmps[j].run(p.duration, dt, 0, 0, 1, 1, epsilon);
@@ -290,14 +294,20 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 			}
 		}
 	}
+	
+	//command generated trajectory to Baxter
+	for(int k = start; k<p.reps; k++ )
+	{
+		
+	}
 }
 
 Eigen::MatrixXd PI2::cost(std::vector< PI2Data > D)
 {	
-	//implement the "acc2_exp.m" cost function
+	//implement the "acc2_exp.m" cost function + terminal cost
 	int n_reps = D.size();
 	int n = D[0].dmp[0].y.size(); //the length of a trajectory in time steps
-	int n_real = D[0].duration/D[0].dt; // the duration of the core trajectory in time steps -- everything beyond this time belongs to the terminal cost
+	int n_real = (int)round(D[0].duration/D[0].dt); // the duration of the core trajectory in time steps -- everything beyond this time belongs to the terminal cost
 	
 	Eigen::MatrixXd R;
 	R.setZero(n, n_reps);
@@ -305,14 +315,13 @@ Eigen::MatrixXd PI2::cost(std::vector< PI2Data > D)
 	//compute cost
 	for(int k=0; k<n_reps; k++)
 	{
-//         printf("compute cost loop %d\n", k);
-        
 		Eigen::VectorXd r, rt;
 		r.setZero(n_real);
 		rt.setZero(n-n_real);
 		
 		for(int i=0; i<_n_dmps; i++)
 		{
+			//cost during trajectory
 			Eigen::VectorXd ydd;
 			ydd = D[k].dmp[i].ydd.block(0,0,n_real,1);
 			ydd = ydd.block(0,0,n_real,1);
@@ -322,6 +331,8 @@ Eigen::MatrixXd PI2::cost(std::vector< PI2Data > D)
 			Eigen::VectorXd ones_col;
 			ones_col.setOnes(ydd.size(),1);
 			r = r + (ones_col-ydd)/n_real;
+			
+			//terminal cost: to be decided
 		}
 		
 		Eigen::VectorXd rrt;
@@ -378,6 +389,8 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 	Eigen::MatrixXd expS = nominator.cwiseQuotient(denominator);
 	expS = expS.array().exp();
 	
+// 	std::cout << expS.format(_HeavyFmt) << std::endl; exit(1);
+	
 	//the probability of a trajectory
 	denominator = expS.rowwise().sum();
 	denominator = denominator*row_ones.transpose();
@@ -409,11 +422,15 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 			gTeps_helper = D[k].dmp[j].bases.cwiseProduct(gTeps_helper);
 			gTeps = gTeps_helper.rowwise().sum();
 			
+// 			std::cout << gTeps.format(_HeavyFmt) << std::endl; exit(1);
+			
 			//compute g'g
 			Eigen::VectorXd gTg;
 			Eigen::MatrixXd gTg_helper;
 			gTg_helper = D[k].dmp[j].bases.cwiseProduct(D[k].dmp[j].bases);
 			gTg = gTg_helper.rowwise().sum();
+			
+// 			std::cout << gTg.format(_HeavyFmt) << std::endl; exit(1);
 			
 			//compute P*M*eps = P*g*g'*eps/(g'g) from prevous results
 			Eigen::MatrixXd PMeps_member;
@@ -451,7 +468,7 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 		N(i)=m-i;
 	Eigen::VectorXd col_ones;
 	col_ones.setOnes(n-m);
-	N << col_ones;
+	N.block(m,0,n-m,1) = col_ones;
     
 	//the final weighting vector takes the kernel activation into account
 	row_ones.setOnes(_n_basis);
@@ -487,6 +504,7 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 	for(int i=0; i<_n_dmps; i++)
 	{
 		_dmps[i].change_w(_dmps[i].getW() + final_dtheta.row(i).transpose());
+// 		std::cout << "dtheta " << i << ": " << final_dtheta.row(i) << std::endl;
 	}
 }
 

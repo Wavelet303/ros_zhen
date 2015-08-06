@@ -20,6 +20,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   geometry_msgs
   cmake_modules
+  baxter_core_msgs
 )
 
 find_package(Eigen REQUIRED)
@@ -81,7 +82,7 @@ find_package(Eigen REQUIRED)
 catkin_package(
 #     INCLUDE_DIRS include
 	LIBRARIES table_object
-	CATKIN_DEPENDS moveit_msgs pcl_conversions ros_sec roscpp sensor_msgs tf
+	CATKIN_DEPENDS moveit_msgs pcl_conversions ros_sec roscpp sensor_msgs tf baxter_core_msgs
 	DEPENDS system_lib message_runtime
 )
 
@@ -104,6 +105,7 @@ add_library(PI2 src/pi2.cpp)
 
 ## Declare a cpp executable
 add_executable(pi2_example src/tools/pi2_example.cpp)
+add_executable(pi2_baxter src/tools/pi2_baxter.cpp)
 
 
 target_link_libraries(
@@ -114,6 +116,11 @@ target_link_libraries(
 
 target_link_libraries(
     pi2_example
+    PI2
+)
+
+target_link_libraries(
+    pi2_baxter
     PI2
 )
 

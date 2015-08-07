@@ -11,6 +11,7 @@
 #include <random>
 #include <algorithm>
 #include <vector>
+#include <ctime>
 
 template <typename T>
 std::vector<size_t> sort_indexes(const std::vector<T> &v) {
@@ -38,6 +39,10 @@ PI2::PI2(int n_dmps, int n_basis)
 	}
 	
 	_HeavyFmt = Eigen::IOFormat(Eigen::FullPrecision);
+	
+	//setup ROS related variables
+	_ROS_initialized = false;
+	_ee_record_count = 0;	
 }
 
 void PI2::readProtocol(std::string protocol_name)
@@ -88,9 +93,29 @@ void PI2::readProtocol(std::string protocol_name)
 	std::cout << _protocol.cost_function << "\n";
 }
 
+// void PI2::setROS(ros::Publisher publisher, ros::Subscriber subscriber, ros::ServiceClient client, baxter_core_msgs::SolvePositionIK srv)
+// {
+// 	_ROS_initialized = true;
+// 	_publisher = publisher;
+// 	_subscriber = subscriber;
+// 	_client = client;
+// 	_srv = srv;
+// }
+
+void PI2::setROSNodeHandle(ros::NodeHandle& n)
+{
+	_ROS_initialized = true;
+	
+	_n = n;
+	_publisher = n.advertise<baxter_core_msgs::JointCommand>("robot/limb/left/joint_command", 1000);
+	_client = n.serviceClient<baxter_core_msgs::SolvePositionIK>("/ExternalTools/left/PositionKinematicsNode/IKService");
+	_subscriber = _n.subscribe("/robot/limb/left/endpoint_state", 100, &PI2::eeStateCallback, this);
+}
+
+
 void PI2::runProtocol()
 {
-	double dt = 0.01;
+	double dt = 0.02;
 	int n = 2*(int)round(_protocol.duration / dt);
 	
 	PI2Data D(n, _n_dmps, _n_basis, _protocol.duration, dt, _protocol.goal);
@@ -235,7 +260,7 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 // 								exit(1);
 // 							}
 // 							epsilon(0) = rnd_epsilon;
-// 							printf("n=%d: %.63f\n", n, epsilon(0));
+// // 							printf("n=%d: %.63f\n", n, epsilon(0));
 // 						}
 					}else{
 						//what is the max activated basis function from the previous time step?
@@ -269,7 +294,7 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 // 									exit(1);
 // 								}
 // 								epsilon(ind_basis) = rnd_epsilon;
-// 								printf("n=%d: %.63f\n", n, epsilon(ind_basis));
+// // 								printf("n=%d: %.63f\n", n, epsilon(ind_basis));
 // 							}
 						}else
 							epsilon = epsilon_prev.transpose();
@@ -293,14 +318,174 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 				D[k].dmp[j].psi.row(n) = _dmps[j].getPsi().transpose();
 			}
 		}
-	}
-	
-	//command generated trajectory to Baxter
-	for(int k = start; k<p.reps; k++ )
-	{
 		
+		//run generated desired trajectory on Baxter
+		run_baxter(D[k]);
 	}
 }
+
+void PI2::run_baxter(PI2Data& D)
+{
+	//only execute the roll-outs when ros node has been set up and publisher & subscriber are set
+	if(_ROS_initialized)
+	{	
+		_ee_current_time.clear();
+		_average_ee_pose.clear();
+		_ee_record_count = 0;
+		for(int n=0; n<D.dmp[0].y.size(); n++)
+		{
+			geometry_msgs::Pose pose;
+			pose.position.x = 0;
+			pose.position.y = 0;
+			pose.position.z = 0;
+			pose.orientation.x = 0;
+			pose.orientation.y = 0;
+			pose.orientation.z = 0;
+			pose.orientation.w = 0;
+			_average_ee_pose.push_back(pose);
+		}
+		
+		baxter_core_msgs::JointCommand msg;
+		msg.mode = baxter_core_msgs::JointCommand::POSITION_MODE;
+		
+		//command previously generated trajectory to Baxter
+		for(int n=0; n<D.dmp[0].y.size(); n++)
+		{
+// 			clock_t exe_begin = clock();
+			
+			//construct left limb endpoint msg (all DOFs at the same time step)
+			geometry_msgs::PoseStamped ee_pose;
+			ee_pose.header.stamp = ros::Time::now();
+			ee_pose.header.frame_id = "base";
+			ee_pose.pose.position.x = 0.3+0.001*n;
+			ee_pose.pose.position.y = 0.6;
+			ee_pose.pose.position.z = 0.05;
+			ee_pose.pose.orientation.x = -0.018;
+			ee_pose.pose.orientation.y = 0.994;
+			ee_pose.pose.orientation.z = -0.003;
+			ee_pose.pose.orientation.w = 0.111;
+// 			ee_pose.pose.position.x = D.dmp[0].y(n);
+// 			ee_pose.pose.position.y = D.dmp[1].y(n);
+// 			ee_pose.pose.position.z = D.dmp[2].y(n);
+// 			ee_pose.pose.orientation.x = D.dmp[3].y(n);
+// 			ee_pose.pose.orientation.y = D.dmp[4].y(n);
+// 			ee_pose.pose.orientation.z = D.dmp[5].y(n);
+// 			ee_pose.pose.orientation.w = D.dmp[6].y(n);
+			
+			//call IKService to get desired joint positions
+			_srv.request.pose_stamp.push_back(ee_pose);
+		}
+		
+			if (_client.call(_srv))
+			{
+				bool all_valid = true;
+				for(int n=0; n<D.dmp[0].y.size(); n++)
+				{
+					if(!_srv.response.isValid[n])
+					{
+						all_valid = false;
+						break;
+					}
+				}
+				
+				if(all_valid)
+				{
+					ROS_INFO("SUCCESS - All Valid Joint Solution Found");
+// 					for(int i=0; i<(int)_srv.response.joints[0].name.size(); i++)
+// 						std::cout << _srv.response.joints[0].name[i] << " ";
+// 					std::cout << std::endl;
+// 					for(int i=0; i<(int)_srv.response.joints[0].position.size(); i++)
+// 						std::cout << _srv.response.joints[0].position[i] << " ";
+// 					std::cout << std::endl;
+				}else
+					ROS_INFO("INVALID POSE - Not all Valid Joint Solution Found.");
+			}
+			else
+			{
+				ROS_ERROR("Failed to call service add_two_ints");
+				exit(1);
+			}
+			
+			ros::AsyncSpinner spinner(4); // Use 4 threads
+			spinner.start();
+			
+		ros::Time begin = ros::Time::now();
+		double time_offset = 5.0;
+		
+		for(int n=0; n<D.dmp[0].y.size(); n++)
+		{
+			
+			time_offset = time_offset + D.dt;
+			//construct left limb joint positions msg
+			msg.names = _srv.response.joints[n].name;
+			msg.names.push_back("left_gripper");
+			msg.command = _srv.response.joints[n].position;
+			msg.command.push_back(100.0);
+			
+// 			clock_t exe_end = clock();
+// 			double elapsed_secs = double(exe_end - exe_begin) / CLOCKS_PER_SEC;
+// 			std::cout << "joint command msg construction elapsed time: " << elapsed_secs << std::endl;
+			
+			std::cout << "current time from starting time = " << (ros::Time::now()-begin).toSec() << std::endl;
+			std::cout << "time_offset = " << time_offset << std::endl;
+			//command Baxter to the desired joint position
+			while((ros::Time::now()-begin).toSec()<time_offset)
+				_publisher.publish(msg);
+			
+			_ee_current_time.push_back(ros::Time::now());
+// 			while(_ee_record_count < 1)
+// 				ros::spinOnce();
+			if(n==10)
+			{
+				while((ros::Time::now()-begin).toSec()<time_offset+0.5)
+					_publisher.publish(msg);
+				
+				for(int nn=0; nn<11; nn++)
+				{
+					printf("position: %f, %f, %f\n", _average_ee_pose[nn].position.x, _average_ee_pose[nn].position.y, _average_ee_pose[nn].position.z);
+					printf("orientation: %f, %f, %f, %f\n", _average_ee_pose[nn].orientation.x, _average_ee_pose[nn].orientation.y, _average_ee_pose[nn].orientation.z, _average_ee_pose[nn].orientation.w);
+				}
+				exit(1);
+			}
+		}
+			
+			//listen current endpoint states
+// // 			exe_begin = clock();
+// 			_ee_current_time = ros::Time::now();
+// 			_ee_record_count = 0;
+// 			while(_ee_record_count < 1)
+// 				ros::spinOnce();
+// 			
+// 			_average_ee_pose.position.x = _average_ee_pose.position.x/_ee_record_count;
+// 			_average_ee_pose.position.y = _average_ee_pose.position.y/_ee_record_count;
+// 			_average_ee_pose.position.z = _average_ee_pose.position.z/_ee_record_count;
+// 			
+// 			_average_ee_pose.orientation.x = _average_ee_pose.orientation.x/_ee_record_count;
+// 			_average_ee_pose.orientation.y = _average_ee_pose.orientation.y/_ee_record_count;
+// 			_average_ee_pose.orientation.z = _average_ee_pose.orientation.z/_ee_record_count;
+// 			_average_ee_pose.orientation.w = _average_ee_pose.orientation.w/_ee_record_count;
+// 			
+// 			std::cout << "************************* average pose **************************\n";
+// 			printf("position: %f, %f, %f\n", _average_ee_pose.position.x, _average_ee_pose.position.y, _average_ee_pose.position.z);
+// 			printf("orientation: %f, %f, %f, %f\n", _average_ee_pose.orientation.x, _average_ee_pose.orientation.y, _average_ee_pose.orientation.z, _average_ee_pose.orientation.w);
+// // 			exe_end = clock();
+// // 			elapsed_secs = double(exe_end - exe_begin) / CLOCKS_PER_SEC;
+// // 			std::cout << "listen current endpoint states elapsed time: " << elapsed_secs << std::endl;
+			
+			
+		
+// 		exit(1);
+	
+		spinner.stop();
+		
+		for(int n=0; n<D.dmp[0].y.size(); n++)
+		{
+			printf("position: %f, %f, %f\n", _average_ee_pose[n].position.x, _average_ee_pose[n].position.y, _average_ee_pose[n].position.z);
+			printf("orientation: %f, %f, %f, %f\n", _average_ee_pose[n].orientation.x, _average_ee_pose[n].orientation.y, _average_ee_pose[n].orientation.z, _average_ee_pose[n].orientation.w);
+		}
+	}
+}
+
 
 Eigen::MatrixXd PI2::cost(std::vector< PI2Data > D)
 {	
@@ -508,9 +693,35 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 	}
 }
 
-
-
-
+void PI2::eeStateCallback(const baxter_core_msgs::EndpointState& msg)
+{
+	if((int)_ee_current_time.size()>_ee_record_count)
+	{
+		if( std::abs((double)((msg.header.stamp - _ee_current_time[_ee_record_count]).toSec())) <0.02 ) // & ((msg.header.stamp - _ee_current_time).toSec() >=0) )
+		{
+	// 		std::cout << "ask for ee pose at time " << _ee_current_time << std::endl;
+	// 		std::cout << "get ee pose at time " << msg.header.stamp << std::endl;
+			std::cout << "******** time difference is " << (double)((msg.header.stamp - _ee_current_time[_ee_record_count]).toSec()) << std::endl;
+			
+	// 		std::cout << "callback here: count = " << _ee_record_count << std::endl;
+	// 		printf("position: %f, %f, %f\n", msg.pose.position.x, msg.pose.position.y, msg.pose.position.z);
+	// 		printf("orientation: %f, %f, %f, %f\n", msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w);
+			
+	// 		_average_ee_pose.position.x += msg.pose.position.x;
+	// 		_average_ee_pose.position.y += msg.pose.position.y;
+	// 		_average_ee_pose.position.z += msg.pose.position.z;
+	// 		
+	// 		_average_ee_pose.orientation.x += msg.pose.orientation.x;
+	// 		_average_ee_pose.orientation.y += msg.pose.orientation.y;
+	// 		_average_ee_pose.orientation.z += msg.pose.orientation.z;
+	// 		_average_ee_pose.orientation.w += msg.pose.orientation.w;
+			
+			_average_ee_pose[_ee_record_count] = msg.pose;
+			
+			_ee_record_count++;
+		}
+	}
+}
 
 
 

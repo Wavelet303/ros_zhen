@@ -14,6 +14,12 @@
 #include <string>
 #include <fstream>
 #include "dmp.h"
+#include "ros/ros.h"
+#include "baxter_core_msgs/JointCommand.h"
+#include "baxter_core_msgs/SolvePositionIK.h"
+#include "baxter_core_msgs/EndpointState.h"
+#include "geometry_msgs/PoseStamped.h"
+#include "geometry_msgs/Pose.h"
 
 #define MAXBUFSIZE  ((int) 1e6)
 
@@ -52,6 +58,10 @@ struct PI2Data{
 	double dt;
 	std::vector<double> goal;
 	
+	Eigen::VectorXd q;
+	Eigen::VectorXd qd;
+	Eigen::VectorXd qdd;
+	
 	PI2Data(int steps, int n_dmps, int n_basis, double input_duration, double input_dt, std::vector< double > input_goal)
 	{
 		for(int i=0; i<n_dmps; i++)
@@ -62,6 +72,10 @@ struct PI2Data{
 		duration = input_duration;
 		dt = input_dt;
 		goal = input_goal;
+		
+		q.setZero(steps, n_dmps);
+		qd.setZero(steps, n_dmps);
+		qdd.setZero(steps, n_dmps);
 	}
 };
 
@@ -80,6 +94,21 @@ public:
 	 */
 	void runProtocol();
 	
+	/** \brief set joint position command setPublisher
+	 *         set endpoint position subscriber
+	 *  \param[in] publisher initialized joint command publisher from ros node
+	 *  \param[in] subscribe initialized endpoint position subscriber from ros node
+	 *  \param[in] client initialized IK service client
+	 *  \param[in] srv initialized IK service server 
+	 */
+// 	void setROS(ros::Publisher publisher, ros::Subscriber subscriber, ros::ServiceClient client, baxter_core_msgs::SolvePositionIK srv);
+	
+	/** \brief set joint position command setPublisher
+	 *         set endpoint position subscriber
+	 *  \param[in] n initialized ros nodehandle 
+	 */
+	void setROSNodeHandle(ros::NodeHandle& n);
+	
 	/** \brief a dedicated function to tun multiple roll-outs using the specifications in D and p
 	 *         noise_mult allows decreasing the noise with the number of roll-outs, which gives smoother converged
 	 *         performance (but it is not needed for convergence)
@@ -88,6 +117,11 @@ public:
 	 *  \param[in] noise_mult noise multiplier applied to exploration noise
 	 */
 	void run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult, std::ifstream* infile = NULL);
+	
+	/** \brief run desired trajectory stored in D on Baxter and store executed trajectory in D
+	 *  \param[in] D data structures to store each roll-outs data (desired & executed)
+	 */
+	void run_baxter(PI2Data& D);
 	
 	/** \brief calculate cost of given data of each roll-outs
 	 *  \param[in] D data structures to store each roll-outs data
@@ -114,6 +148,22 @@ private:
 	std::normal_distribution<double> _distribution;
 	
 	Eigen::IOFormat _HeavyFmt;
+	
+	bool _ROS_initialized;
+	
+	ros::NodeHandle _n;
+	ros::Publisher _publisher;
+	ros::Subscriber _subscriber;
+	ros::ServiceClient _client;
+	baxter_core_msgs::SolvePositionIK _srv;
+	std::vector<geometry_msgs::Pose> _average_ee_pose;
+	int _ee_record_count;
+	std::vector<ros::Time> _ee_current_time;
+	
+	/** \brief callback function of subscriber on end point pose
+	 *  \param[in] msg received end point pose msg
+	 */
+	void eeStateCallback(const baxter_core_msgs::EndpointState& msg);
 };
 
 #endif  // PI2_H

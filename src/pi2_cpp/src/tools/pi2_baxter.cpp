@@ -17,13 +17,16 @@ int main(int argc, char** argv)
 	
 	ros::Publisher joint_position_pub = n.advertise<baxter_core_msgs::JointCommand>("robot/limb/left/joint_command", 1000);
 	ros::Rate loop_rate(1);
-	
-	while(ros::ok())
+    
+    ros::Time begin = ros::Time::now();
+    double time_offset = 5.0;
+    
+	while((ros::Time::now()).toSec()-begin<time_offset)
 	{
 		baxter_core_msgs::JointCommand msg;
 		msg.mode = baxter_core_msgs::JointCommand::POSITION_MODE;
-		msg.names = {"time","left_s0","left_s1","left_e0","left_e1","left_w0","left_w1"}; //,"left_w2","left_gripper"};
-		msg.command = {7.01,0.810955272759,-0.889685757539,-0.201837847861,1.91495434991,2.93148422081,-0.563894595801}; //,-1.44300820632,100.0};
+		msg.names = {"left_s0","left_s1","left_e0","left_e1","left_w0","left_w1"}; //,"left_w2","left_gripper"};
+		msg.command = {0.810955272759,-0.889685757539,-0.201837847861,1.91495434991,2.93148422081,-0.563894595801}; //,-1.44300820632,100.0};
 		
 		joint_position_pub.publish(msg);
 	}

@@ -278,7 +278,6 @@ std::vector< Eigen::VectorXd > DMP::batch_fit(double duration, double dt, Eigen:
 	PSI_array = PSI_array.exp();
 	Eigen::Map<Eigen::MatrixXd> PSI(PSI_array.data(), PSI_array.rows(), PSI_array.cols());
 	
-	
 	//compute the regression
 	copyX = X;
 	X_array = X_array.pow(2);
@@ -349,36 +348,16 @@ std::vector< Eigen::VectorXd > DMP::batch_fit(double duration, double dt, Eigen:
 	diffTY = diffTY.cwiseProduct(diffTY);
 	Eigen::VectorXd error_vector = diffTY.colwise().sum();
 	
+// 	std::cout << F.size() << std::endl;
+	
 	double error = error_vector(0);
 	error = std::sqrt(error/T_length);
 	std::cout << "DMP regression RMS error = " << error << std::endl;
 	
-// 	Dislin dislin_plot;
-// 	double time[T_length], T_plot[T_length], Y_plot[T_length];
-// 	for(int i=0; i<T_length; i++)
-// 	{
-// 		T_plot[i] = T(i);
-// 		Y_plot[i] = Y(i);
-// 		time[i] = dt*i;
-// 	}
-// 	dislin_plot.titlin ("DMP batch fitting", 1);
-// 	dislin_plot.color  ("fore");
-// 	dislin_plot.height (50);
-// 	dislin_plot.title  ();
-// 	
-// 	dislin_plot.name   ("time/s", "x");
-// 	dislin_plot.name   ("position/m", "y");
-// 	
-// 	dislin_plot.color  ("green");
-// 	dislin_plot.curve  (time, T_plot, T_length);
-// 	dislin_plot.color  ("red");
-// 	dislin_plot.curve  (time, Y_plot, T_length);
-// 	dislin_plot.disfin ();
-	
 	return output;
 }
 
-Eigen::MatrixXd DMP::readMatrix(const char *filename)
+Eigen::MatrixXd DMP::readMatrix(const char *filename, bool fromMatlab)
 {
 	int cols = 0, rows = 0;
 	double buff[MAXBUFSIZE];
@@ -407,7 +386,8 @@ Eigen::MatrixXd DMP::readMatrix(const char *filename)
 	
 	infile.close();
 	
-	rows--;
+	if(fromMatlab)
+		rows--;
 	
 	// Populate matrix with numbers.
 	Eigen::MatrixXd result(rows,cols);

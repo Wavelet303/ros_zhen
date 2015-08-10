@@ -90,6 +90,10 @@ public:
 	*/
 	void readProtocol(std::string protocol_name);
 	
+	/** \brief initialize policy parameters (w for DMPs for each DOF) by fitting to demonstration
+	 */
+	void initializeW(char* dmp_folder_name);
+	
 	/** \brief run loaded protocol
 	 */
 	void runProtocol();
@@ -142,6 +146,7 @@ private:
 	std::vector<DMP> _dmps;
 	
 	PI2Protocol _protocol;
+	double _dt; //unit time
 	
 	// random number generator based on normal distribution
 	std::default_random_engine _generator;
@@ -158,7 +163,7 @@ private:
 	baxter_core_msgs::SolvePositionIK _srv;
 	std::vector<geometry_msgs::Pose> _average_ee_pose;
 	int _ee_record_count;
-	std::vector<ros::Time> _ee_current_time;
+	std::vector<double> _ee_current_time;
 	
 	/** \brief callback function of subscriber on end point pose
 	 *  \param[in] msg received end point pose msg

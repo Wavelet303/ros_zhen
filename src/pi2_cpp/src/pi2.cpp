@@ -101,7 +101,7 @@ void PI2::initializeW(char* dmp_folder_name)
 	for(int i=0; i<_n_dmps; i++)
 	{
 		char buffer [100];
-		sprintf (buffer, "/home/zengzhen/Desktop/kinesthetic_teaching/%s/dmp%d.txt", dmp_folder_name, i);
+		sprintf (buffer, "/home/zengzhen/Desktop/kinesthetic_teaching/%s/dmp%d_smooth.txt", dmp_folder_name, i);
 		read_T= _dmps[i].readMatrix(buffer, false);
 		// 		std::cout << "read file T = " << read_T << std::endl; 
 		

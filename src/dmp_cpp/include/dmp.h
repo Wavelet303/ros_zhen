@@ -70,6 +70,20 @@ public:
 	
 	inline Eigen::VectorXd getPsi() {return _psi;};
 	
+	inline double getGoal() {return _g;};
+	
+	/** \brief write w to file /home/zengzhen/Desktop/kinesthetic_teaching/%s/dmp%d_learned.txt
+	 *  \param[in] dmp_folder_name folder to store the learned w
+	 *  \param[in] index the dmp index among the learned DOFs 
+	 */
+	void writeWToFile(char* dmp_folder_name, int index);
+	
+	/** \brief load w from file /home/zengzhen/Desktop/kinesthetic_teaching/%s/dmp%d_learned.txt
+	 *  \param[in] dmp_folder_name folder to store the learned w
+	 *  \param[in] index the dmp index among the learned DOFs 
+	 */
+	void loadWFromFile(char* dmp_folder_name, int index);
+	
 private:
 	double _alpha_z;
 	double _beta_z;

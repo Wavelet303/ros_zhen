@@ -211,18 +211,18 @@ int main(int argc, char** argv)
 	char cost_function[100]; //dummy variable
 	
 	std_dev = 20;
-	repetitions = 10;
-	updates = 2;
+	repetitions = 20;
+	updates = 50;
 	basis_noise = 1;
 	sprintf(cost_function, "acc2_exp"); 
-	n_reuse = 5;
+	n_reuse = 10;
 	
 	protocol_file << start_pose.position.x << " " << start_pose.position.y << " " << start_pose.position.z << " ";
 	protocol_file << start_pose.orientation.x << " " << start_pose.orientation.y << " " << start_pose.orientation.z << " " << start_pose.orientation.w << " ";
 	protocol_file << end_pose.position.x << " " << end_pose.position.y << " " << end_pose.position.z << " ";
 	protocol_file << end_pose.orientation.x << " " << end_pose.orientation.y << " " << end_pose.orientation.z << " " << end_pose.orientation.w << " ";
 	
-	protocol_file << 0.01*count << " " << std_dev << " " << repetitions << " " << cost_function << " " << updates << " " << basis_noise << " " << n_reuse;
+	protocol_file << 0.05*count << " " << std_dev << " " << repetitions << " " << cost_function << " " << updates << " " << basis_noise << " " << n_reuse;
 	
 	return 0;
 }

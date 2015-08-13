@@ -398,6 +398,28 @@ Eigen::MatrixXd DMP::readMatrix(const char *filename, bool fromMatlab)
 	return result;
 }
 
+void DMP::writeWToFile(char* dmp_folder_name, int index)
+{
+	char buffer [100];
+	sprintf (buffer, "/home/zengzhen/Desktop/kinesthetic_teaching/%s/dmp%d_learned.txt", dmp_folder_name, index);
+	std::ofstream fout;
+	fout.open(buffer);
+	
+	for(int i=0; i<(int)_w.size(); i++)
+	{
+		fout << "   " << _w(i);
+	}
+	fout.close();
+}
 
-
+void DMP::loadWFromFile(char* dmp_folder_name, int index)
+{
+	char buffer [100];
+	sprintf (buffer, "/home/zengzhen/Desktop/kinesthetic_teaching/%s/dmp%d_learned.txt", dmp_folder_name, index);
+	Eigen::MatrixXd temp = readMatrix(buffer, false);
+	_w = temp.transpose();
+	
+	
+// 	std::cout << _w.transpose() << std::endl;
+}
 

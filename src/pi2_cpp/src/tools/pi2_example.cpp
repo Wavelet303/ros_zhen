@@ -18,15 +18,18 @@ int main(int argc, char** argv)
 	ros::init(argc, argv, "pi2_example");
 	ros::NodeHandle n;
 	
-	PI2 pi2_example(7,100);
+	PI2 pi2_example(7,100,true); // true to trigeer goal update
 	
 	pi2_example.readProtocol(std::string(argv[1]));
 	
 	clock_t begin = clock();
 	pi2_example.setROSNodeHandle(n);
-	pi2_example.initializeW(argv[2]);
-	pi2_example.runProtocol();
+// 	pi2_example.initializeW(argv[2]);
+// 	pi2_example.runProtocol();
 	
+	pi2_example.loadLearnedW(argv[2]);
+	pi2_example.loadLearnedGoal(argv[2]);
+	pi2_example.runProtocolLearnedW();
 	
 	clock_t end = clock();
 	double elapsed_secs = double(end - begin) / CLOCKS_PER_SEC;

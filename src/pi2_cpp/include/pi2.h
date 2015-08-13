@@ -16,6 +16,7 @@
 #include "dmp.h"
 #include "ros/ros.h"
 #include "baxter_core_msgs/JointCommand.h"
+#include "baxter_core_msgs/EndEffectorCommand.h"
 #include "baxter_core_msgs/SolvePositionIK.h"
 #include "baxter_core_msgs/EndpointState.h"
 #include "geometry_msgs/PoseStamped.h"
@@ -38,6 +39,7 @@ struct PI2DMP{
 	Eigen::MatrixXd bases;
 	Eigen::MatrixXd theta_eps;
 	Eigen::MatrixXd psi;
+	double g_eps;
 	
 	PI2DMP(int steps, int n_basis)
 	{
@@ -47,6 +49,7 @@ struct PI2DMP{
 		bases.setZero(steps, n_basis);
 		theta_eps.setZero(steps, n_basis);
 		psi.setZero(steps,n_basis);
+		g_eps = 0.0;
 	}
 };
 
@@ -57,10 +60,11 @@ struct PI2Data{
 	double duration;
 	double dt;
 	std::vector<double> goal;
+	double user_input_cost;
 	
-	Eigen::VectorXd q;
-	Eigen::VectorXd qd;
-	Eigen::VectorXd qdd;
+	Eigen::MatrixXd q;
+	Eigen::MatrixXd qd;
+	Eigen::MatrixXd qdd;
 	
 	PI2Data(int steps, int n_dmps, int n_basis, double input_duration, double input_dt, std::vector< double > input_goal)
 	{
@@ -83,7 +87,7 @@ class PI2 {
 public:
 	/** \brief Constructor.
 	*/
-	PI2(int n_dmps, int n_basis);
+	PI2(int n_dmps, int n_basis, bool update_goal=false);
 	
 	/** \brief read protocol file.
 	*   \param[in] filename 
@@ -91,12 +95,32 @@ public:
 	void readProtocol(std::string protocol_name);
 	
 	/** \brief initialize policy parameters (w for DMPs for each DOF) by fitting to demonstration
+	 *  \\param[in] dmp_folder_name folder that stores the trajectory
 	 */
 	void initializeW(char* dmp_folder_name);
+	
+	/** \brief load learned policy parameters (w for DMPs for each DOF)
+	 *  \param[in] dmp_folder_name folder that stores the learned w
+	 */
+	void loadLearnedW(char* dmp_folder_name);
+	
+	/** \brief write learned goal to file
+	 *  \param[in] dmp_folder_name folder to store the learned goal
+	 */
+	void writeGoalToFile(char* dmp_folder_name);
+	
+	/** \brief load learned goal
+	 *  \param[in] dmp_folder_name folder that stores the learned goal
+	 */
+	void loadLearnedGoal(char* dmp_folder_name);
 	
 	/** \brief run loaded protocol
 	 */
 	void runProtocol();
+	
+	/** \brief run loaded protocol with learned w
+	 */
+	void runProtocolLearnedW();
 	
 	/** \brief set joint position command setPublisher
 	 *         set endpoint position subscriber
@@ -124,8 +148,9 @@ public:
 	
 	/** \brief run desired trajectory stored in D on Baxter and store executed trajectory in D
 	 *  \param[in] D data structures to store each roll-outs data (desired & executed)
+	 *  \param[in] trial_index ith trial
 	 */
-	void run_baxter(PI2Data& D);
+	void run_baxter(std::vector<PI2Data>& D, int trial_index);
 	
 	/** \brief calculate cost of given data of each roll-outs
 	 *  \param[in] D data structures to store each roll-outs data
@@ -158,10 +183,12 @@ private:
 	
 	ros::NodeHandle _n;
 	ros::Publisher _publisher;
+	ros::Publisher _gripper_publiser;
 	ros::Subscriber _subscriber;
 	ros::ServiceClient _client;
 	baxter_core_msgs::SolvePositionIK _srv;
 	std::vector<geometry_msgs::Pose> _average_ee_pose;
+	std::vector<double> _average_ee_pose_time_stamp;
 	int _ee_record_count;
 	std::vector<double> _ee_current_time;
 	
@@ -169,6 +196,9 @@ private:
 	 *  \param[in] msg received end point pose msg
 	 */
 	void eeStateCallback(const baxter_core_msgs::EndpointState& msg);
+	
+	bool _update_goal;
+	char* _dmp_folder_name;
 };
 
 #endif  // PI2_H

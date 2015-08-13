@@ -27,7 +27,7 @@ std::vector<size_t> sort_indexes(const std::vector<T> &v) {
 	return idx;
 }
 
-PI2::PI2(int n_dmps, int n_basis)
+PI2::PI2(int n_dmps, int n_basis,  bool update_goal)
 {
 	_n_dmps = n_dmps;
 	_n_basis = n_basis;
@@ -44,7 +44,9 @@ PI2::PI2(int n_dmps, int n_basis)
 	_ROS_initialized = false;
 	_ee_record_count = 0;	
 	
-	_dt = 0.05; //corresponds to duration 5s
+	_dt = 0.05;
+	
+	_update_goal = update_goal;
 }
 
 void PI2::readProtocol(std::string protocol_name)
@@ -97,6 +99,8 @@ void PI2::readProtocol(std::string protocol_name)
 
 void PI2::initializeW(char* dmp_folder_name)
 {	
+	_dmp_folder_name = dmp_folder_name;
+	
 	Eigen::MatrixXd read_T;
 	for(int i=0; i<_n_dmps; i++)
 	{
@@ -125,12 +129,51 @@ void PI2::initializeW(char* dmp_folder_name)
 	}
 }
 
+void PI2::loadLearnedW(char* dmp_folder_name)
+{
+	_dmp_folder_name = dmp_folder_name;
+	for(int i=0; i<_n_dmps; i++)
+	{
+		_dmps[i].loadWFromFile(dmp_folder_name, i);
+	}
+}
+
+void PI2::writeGoalToFile(char* dmp_folder_name)
+{
+	_dmp_folder_name = dmp_folder_name;
+	char buffer [100];
+	sprintf (buffer, "/home/zengzhen/Desktop/kinesthetic_teaching/%s/goal_learned.txt", dmp_folder_name);
+	std::ofstream fout;
+	fout.open(buffer);
+	
+	for(int i=0; i<(int)_protocol.goal.size(); i++)
+	{
+		fout << "   " << _protocol.goal[i];
+	}
+	fout.close();
+}
+
+void PI2::loadLearnedGoal(char* dmp_folder_name)
+{
+	_dmp_folder_name = dmp_folder_name;
+	char buffer [100];
+	sprintf (buffer, "/home/zengzhen/Desktop/kinesthetic_teaching/%s/goal_learned.txt", dmp_folder_name);
+	
+	DMP dummy(10);
+	Eigen::MatrixXd temp_matrix = dummy.readMatrix(buffer, false);
+	Eigen::VectorXd temp_vector = temp_matrix.transpose();
+	std::vector<double> learned_goal(temp_vector.data(), temp_vector.data()+temp_vector.size());
+	_protocol.goal = learned_goal;
+}
+
+
 void PI2::setROSNodeHandle(ros::NodeHandle& n)
 {
 	_ROS_initialized = true;
 	
 	_n = n;
 	_publisher = n.advertise<baxter_core_msgs::JointCommand>("robot/limb/left/joint_command", 1000);
+	_gripper_publiser = n.advertise<baxter_core_msgs::EndEffectorCommand>("/robot/end_effector/left_gripper/command", 1);
 	_client = n.serviceClient<baxter_core_msgs::SolvePositionIK>("/ExternalTools/left/PositionKinematicsNode/IKService");
 	_subscriber = _n.subscribe("/robot/limb/left/endpoint_state", 100, &PI2::eeStateCallback, this);
 }
@@ -139,15 +182,11 @@ void PI2::setROSNodeHandle(ros::NodeHandle& n)
 void PI2::runProtocol()
 {
 	double dt = _dt;
-	int n = 2*(int)round(_protocol.duration / dt);
+	int n = 1.5*(int)round(_protocol.duration / dt);
 	
 	PI2Data D(n, _n_dmps, _n_basis, _protocol.duration, dt, _protocol.goal);
 	
 	PI2Data D_eval = D;
-	PI2Protocol p_eval = _protocol;
-	p_eval.reps = 1;
-	p_eval.stdv = 0;
-	p_eval.n_reuse = 0;
 	
 	//one data structure for each repetition
 	std::vector<PI2Data> D_series;
@@ -166,12 +205,43 @@ void PI2::runProtocol()
 	std::string epsilon_file("/home/zengzhen/Desktop/epsilon.txt");
 	std::ifstream infile(epsilon_file.c_str());
 	
+	if(_update_goal)
+	{
+		std::cout << "initial goal: ";
+		for(int i=0; i<(int)_protocol.goal.size(); i++)
+			std::cout << _protocol.goal[i] << " ";
+		std::cout<< std::endl;
+	}
+	
+	PI2Protocol p_eval;
 	for(int i=0; i<_protocol.updates;i++)
 	{
+		p_eval = _protocol;
+		p_eval.reps = 1;
+		p_eval.stdv = 0;
+		p_eval.n_reuse = 0;
+		
 		run_rollouts(D_eval_series, p_eval,1, &infile);
 		
+		//print out commanded trajectory
+		std::cout << D_eval_series[0].dmp[0].y.transpose() << std::endl; //position.x trajectory
+		
 		//compute all costs in batch form, as this is faster in matlab
-		Eigen::MatrixXd R_eval = cost(D_eval_series);
+		Eigen::MatrixXd R_eval = cost(D_eval_series); 
+		std::cout << std::endl;
+		
+		/**********************************************************************
+		* run again to see how much the cost varies given the exact same DMP
+		***********************************************************************/
+// 		run_rollouts(D_eval_series, p_eval,1, &infile);
+// 		
+// 		//print out commanded trajectory
+// 		std::cout << D_eval_series[0].dmp[0].y.transpose() << std::endl; //position.x trajectory
+// 		
+// 		//compute all costs in batch form, as this is faster in matlab
+// 		R_eval = cost(D_eval_series); 
+// 		std::cout << std::endl;
+// 		exit(1);
 		
 		if(i==0)
 		{
@@ -194,6 +264,7 @@ void PI2::runProtocol()
 		
 		//compute all costs in batch form, as this is faster in Matlab
 		Eigen::MatrixXd R = cost(D_series);
+		std::cout << std::endl;
 		
 		//perform the PI2 update
 		updatePI2(D_series, R);
@@ -221,8 +292,48 @@ void PI2::runProtocol()
 	T(_protocol.updates,0) = _protocol.updates*(_protocol.reps-_protocol.n_reuse)+_protocol.n_reuse+1;
 	T(_protocol.updates,1) = R_eval.colwise().sum()(0);
 	
-	std::cout << "cost trace = " << T.col(1).transpose().format(_HeavyFmt) << std::endl;
+	//print out commanded trajectory
+	std::cout << std::endl;
+	std::cout << D_eval_series[0].dmp[0].y.transpose() << std::endl; //position.x trajectory
+	
+	std::cout << "cost trace = " << T.format(_HeavyFmt) << std::endl;
+	
+	for(int i=0; i<_n_dmps; i++)
+	{
+// 		std::cout << _dmps[i].getW().transpose() << std::endl;
+		_dmps[i].writeWToFile(_dmp_folder_name, i);
+	}
+	
+	if(_update_goal)
+	{
+		std::cout << "learned goal: ";
+		for(int i=0; i<(int)_protocol.goal.size(); i++)
+			std::cout << _protocol.goal[i] << " ";
+		std::cout<< std::endl;
+		writeGoalToFile(_dmp_folder_name);
+	}
 }
+
+void PI2::runProtocolLearnedW()
+{
+	double dt = _dt;
+	int n = 1.5*(int)round(_protocol.duration / dt);
+	
+	PI2Data D(n, _n_dmps, _n_basis, _protocol.duration, dt, _protocol.goal);
+	
+	PI2Data D_eval = D;
+	std::vector<PI2Data> D_eval_series;
+	D_eval_series.push_back(D_eval);
+	
+	PI2Protocol p_eval;
+	p_eval = _protocol;
+	p_eval.reps = 1;
+	p_eval.stdv = 0;
+	p_eval.n_reuse = 0;
+		
+	run_rollouts(D_eval_series, p_eval,1);
+}
+
 
 void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult, std::ifstream* infile)
 {
@@ -235,14 +346,26 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 	if(D[0].dmp[0].psi(0,0)==0) //indicates very first batch of run_rollouts
 		start = 0;
 	
+	double epsilon_g[_n_dmps];
 	// generate desired trajectory
 	for(int k = start; k<p.reps; k++ )
 	{
 		//reset the DMP
+		double goal_pos_exploration = 0.03*noise_mult;
+		double goal_ori_exploration = 0.07*noise_mult;
 		for(int j=0; j<_n_dmps; j++)
 		{
 			_dmps[j].reset_state(p.start[j]);
-			_dmps[j].set_goal(p.goal[j], 1);
+			
+			epsilon_g[j]=0.0;
+			if((p.stdv!=0) & _update_goal)
+			{
+				if(j<3)
+					epsilon_g[j] += _distribution(_generator)*goal_pos_exploration;
+				else
+					epsilon_g[j] += _distribution(_generator)*goal_ori_exploration;
+			}
+			_dmps[j].set_goal(p.goal[j]+epsilon_g[j], 1);
 		}
 		
 		//integrate through the duration
@@ -339,23 +462,28 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 				D[k].dmp[j].bases.row(n) = dmp_stats[3].transpose(); //b 
 				D[k].dmp[j].theta_eps.row(n) = (_dmps[j].getW() + epsilon).transpose();
 				D[k].dmp[j].psi.row(n) = _dmps[j].getPsi().transpose();
+				D[k].dmp[j].g_eps = epsilon_g[j];
 			}
 		}
 		
-		//run generated desired trajectory on Baxter
-		run_baxter(D[k]);
+		if(_n_dmps>=7)
+		{
+			//run generated desired trajectory on Baxter
+			run_baxter(D, k);
+		}
 	}
 }
 
-void PI2::run_baxter(PI2Data& D)
+void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 {
 	//only execute the roll-outs when ros node has been set up and publisher & subscriber are set
 	if(_ROS_initialized)
 	{	
 		_ee_current_time.clear();
 		_average_ee_pose.clear();
+		_average_ee_pose_time_stamp.clear();
 		_ee_record_count = 0;
-		for(int n=0; n<D.dmp[0].y.size(); n++)
+		for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
 		{
 			geometry_msgs::Pose pose;
 			pose.position.x = 0;
@@ -366,13 +494,17 @@ void PI2::run_baxter(PI2Data& D)
 			pose.orientation.z = 0;
 			pose.orientation.w = 0;
 			_average_ee_pose.push_back(pose);
+			
+			_average_ee_pose_time_stamp.push_back(0);
 		}
 		
 		baxter_core_msgs::JointCommand msg;
 		msg.mode = baxter_core_msgs::JointCommand::POSITION_MODE;
 		
+		_srv.request.pose_stamp.clear();
+		
 		//command previously generated trajectory to Baxter
-		for(int n=0; n<D.dmp[0].y.size(); n++)
+		for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
 		{			
 			//construct left limb endpoint msg (all DOFs at the same time step)
 			geometry_msgs::PoseStamped ee_pose;
@@ -385,13 +517,13 @@ void PI2::run_baxter(PI2Data& D)
 // 			ee_pose.pose.orientation.y = 0.994;
 // 			ee_pose.pose.orientation.z = -0.003;
 // 			ee_pose.pose.orientation.w = 0.111;
-			ee_pose.pose.position.x = D.dmp[0].y(n);
-			ee_pose.pose.position.y = D.dmp[1].y(n);
-			ee_pose.pose.position.z = D.dmp[2].y(n);
-			ee_pose.pose.orientation.x = D.dmp[3].y(n);
-			ee_pose.pose.orientation.y = D.dmp[4].y(n);
-			ee_pose.pose.orientation.z = D.dmp[5].y(n);
-			ee_pose.pose.orientation.w = D.dmp[6].y(n);
+			ee_pose.pose.position.x = D[trial_index].dmp[0].y(n);
+			ee_pose.pose.position.y = D[trial_index].dmp[1].y(n);
+			ee_pose.pose.position.z = D[trial_index].dmp[2].y(n);
+			ee_pose.pose.orientation.x = D[trial_index].dmp[3].y(n);
+			ee_pose.pose.orientation.y = D[trial_index].dmp[4].y(n);
+			ee_pose.pose.orientation.z = D[trial_index].dmp[5].y(n);
+			ee_pose.pose.orientation.w = D[trial_index].dmp[6].y(n);
 			
 			//call IKService to get desired joint positions
 			_srv.request.pose_stamp.push_back(ee_pose);
@@ -400,7 +532,7 @@ void PI2::run_baxter(PI2Data& D)
 		if (_client.call(_srv))
 		{
 			bool all_valid = true;
-			for(int n=0; n<D.dmp[0].y.size(); n++)
+			for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
 			{
 				if(!_srv.response.isValid[n])
 				{
@@ -428,11 +560,11 @@ void PI2::run_baxter(PI2Data& D)
 		}
 			
 		ros::Time begin = ros::Time::now();
-		double time_offset = 5; //5 is safe
+		double time_offset = 2; //5 is safe
 		
-		for(int n=0; n<D.dmp[0].y.size(); n++)
+		for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
 		{
-			time_offset = time_offset + D.dt;
+			time_offset = time_offset + D[trial_index].dt;
 			
 			//construct left limb joint positions msg
 			msg.names = _srv.response.joints[n].name;
@@ -467,24 +599,137 @@ void PI2::run_baxter(PI2Data& D)
 // 			}
 		}
 		
-// 		for(int n=0; n<D.dmp[0].y.size(); n++)
+		if(_ee_record_count != (int)_average_ee_pose.size())
+		{
+			std::cout << "Lost some poses at some requested time stamp\n";
+			exit(1);
+		}
+		
+// 		for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
 // 		{
 // 			printf("position: %f, %f, %f\n", _average_ee_pose[n].position.x, _average_ee_pose[n].position.y, _average_ee_pose[n].position.z);
 // 			printf("orientation: %f, %f, %f, %f\n", _average_ee_pose[n].orientation.x, _average_ee_pose[n].orientation.y, _average_ee_pose[n].orientation.z, _average_ee_pose[n].orientation.w);
 // 		}
+
+
+		int steps = D[trial_index].dmp[0].y.size();		
+		if(_update_goal)
+		{
+			//close gripper - grasp
+			baxter_core_msgs::EndEffectorCommand gripper_command;
+			gripper_command.id = 65664;
+			gripper_command.command = baxter_core_msgs::EndEffectorCommand::CMD_GRIP;
+			_gripper_publiser.publish(gripper_command);
+			ros::Duration(1).sleep();
+			
+			//increase z value - lift
+			geometry_msgs::PoseStamped ee_pose;
+			ee_pose.header.stamp = ros::Time::now();
+			ee_pose.header.frame_id = "base";
+			ee_pose.pose.position.x = D[trial_index].dmp[0].y(steps-1);
+			ee_pose.pose.position.y = D[trial_index].dmp[1].y(steps-1);
+			ee_pose.pose.position.z = D[trial_index].dmp[2].y(steps-1)+0.2;
+			ee_pose.pose.orientation.x = D[trial_index].dmp[3].y(steps-1);
+			ee_pose.pose.orientation.y = D[trial_index].dmp[4].y(steps-1);
+			ee_pose.pose.orientation.z = D[trial_index].dmp[5].y(steps-1);
+			ee_pose.pose.orientation.w = D[trial_index].dmp[6].y(steps-1);
+			_srv.request.pose_stamp.clear();
+			_srv.request.pose_stamp.push_back(ee_pose);
+			if (_client.call(_srv))
+			{	
+				if(_srv.response.isValid[0])
+				{
+					ROS_INFO("SUCCESS - Valid Joint Solution Found for Lifting");
+				}else
+					ROS_INFO("INVALID POSE - Not all Valid Joint Solution Found.");
+			}
+			else
+			{
+				ROS_ERROR("Failed to call service add_two_ints");
+				exit(1);
+			}
+			msg.names = _srv.response.joints[0].name;
+			msg.names.push_back("left_gripper");
+			msg.command = _srv.response.joints[0].position;
+			msg.command.push_back(0.0);
+			begin = ros::Time::now();
+			while((ros::Time::now()-begin).toSec()<2)
+			{
+				_publisher.publish(msg);
+			}
+			ros::Duration(1).sleep();
+			
+			//open gripper - release
+// 			gripper_command.command = baxter_core_msgs::EndEffectorCommand::CMD_RELEASE;
+// 			_gripper_publiser.publish(gripper_command);
+		}
+
+		//ask for cost from user
+		double terminal_cost = 0.0;
+		if(_update_goal)
+		{
+			std::cout << "Please enter terminal cost: ";
+			std::cin >> terminal_cost;
+		}
+		D[trial_index].user_input_cost = terminal_cost;
+
+		//store D[trial_index]: q
+		for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
+		{
+			D[trial_index].q(n, 0) = _average_ee_pose[n].position.x;
+			D[trial_index].q(n, 1) = _average_ee_pose[n].position.y;
+			D[trial_index].q(n, 2) = _average_ee_pose[n].position.z;
+			
+			D[trial_index].q(n, 3) = _average_ee_pose[n].orientation.x;
+			D[trial_index].q(n, 4) = _average_ee_pose[n].orientation.y;
+			D[trial_index].q(n, 5) = _average_ee_pose[n].orientation.z;
+			D[trial_index].q(n, 6) = _average_ee_pose[n].orientation.w;
+		}
+		
+		//store D[trial_index]: qd
+		for(int i=0; i<7; i++)
+		{
+			D[trial_index].qd.col(i).block(0,0,steps-1,1) = D[trial_index].q.col(i).block(1,0,steps-1,1);
+			D[trial_index].qd.col(i) = D[trial_index].qd.col(i) - D[trial_index].q.col(i);
+			D[trial_index].qd(steps-1,i) = 0;
+// 			D[trial_index].qd.col(i) = D[trial_index].qd.col(i)/D[trial_index].dt;
+			
+			for(int j=0; j<steps-1; j++)
+				D[trial_index].qd(j,i) = D[trial_index].qd(j,i)/(_average_ee_pose_time_stamp[j+1]-_average_ee_pose_time_stamp[j]);
+		}
+		
+		//store D[trial_index]: qdd
+		for(int i=0; i<7; i++)
+		{
+			D[trial_index].qdd.col(i).block(0,0,steps-1,1) = D[trial_index].qd.col(i).block(1,0,steps-1,1);
+			D[trial_index].qdd.col(i) = D[trial_index].qdd.col(i) - D[trial_index].qd.col(i);
+			D[trial_index].qdd(steps-1,i) = 0;
+// 			D[trial_index].qdd.col(i) = D[trial_index].qdd.col(i)/D[trial_index].dt;
+			
+			for(int j=0; j<steps-1; j++)
+				D[trial_index].qdd(j,i) = D[trial_index].qdd(j,i)/(_average_ee_pose_time_stamp[j+1]-_average_ee_pose_time_stamp[j]);
+		}
+		
+// 		std::cout << "y = " << D[trial_index].dmp[0].y.transpose() << std::endl;
+// 		std::cout << "\nq = " << D[trial_index].q.col(0).transpose() << std::endl;
+// 		std::cout << "\nqd = " << D[trial_index].qd.col(0).transpose() << std::endl;
+// 		std::cout << "\nqdd = " << D[trial_index].qdd.col(0).transpose() << std::endl;
+// 		exit(1);
 	}
 }
 
 
 Eigen::MatrixXd PI2::cost(std::vector< PI2Data > D)
 {	
-	//implement the "acc2_exp.m" cost function + terminal cost
 	int n_reps = D.size();
 	int n = D[0].dmp[0].y.size(); //the length of a trajectory in time steps
 	int n_real = (int)round(D[0].duration/D[0].dt); // the duration of the core trajectory in time steps -- everything beyond this time belongs to the terminal cost
 	
 	Eigen::MatrixXd R;
 	R.setZero(n, n_reps);
+	
+	Eigen::VectorXd r_ydd;
+	r_ydd.setZero(n_real);
 	
 	//compute cost
 	for(int k=0; k<n_reps; k++)
@@ -496,18 +741,48 @@ Eigen::MatrixXd PI2::cost(std::vector< PI2Data > D)
 		for(int i=0; i<_n_dmps; i++)
 		{
 			//cost during trajectory
-			Eigen::VectorXd ydd;
-			ydd = D[k].dmp[i].ydd.block(0,0,n_real,1);
-			ydd = ydd.block(0,0,n_real,1);
-			ydd = ydd.cwiseAbs();
-			ydd = ydd*(-0.01);
-			ydd = ydd.array().exp();
-			Eigen::VectorXd ones_col;
-			ones_col.setOnes(ydd.size(),1);
-			r = r + (ones_col-ydd)/n_real;
-			
-			//terminal cost: to be decided
+// 			if(_n_dmps<7)
+// 			{
+				//implement the "acc2_exp.m" cost function + terminal cost
+				Eigen::VectorXd ydd;
+				ydd = D[k].dmp[i].ydd.block(0,0,n_real,1);
+// 				ydd = ydd.cwiseAbs();
+// 				ydd = ydd*(-0.01);
+// 				ydd = ydd.array().exp();
+// 				Eigen::VectorXd ones_col;
+// 				ones_col.setOnes(ydd.size(),1);
+// 				r = r + (ones_col-ydd)/n_real;
+				if(n_reps==1)
+				{
+					ydd = ydd.cwiseProduct(ydd);
+					r_ydd = r_ydd + ydd;
+				}
+// 			}else{
+				//cost = acceleration^2 sum over all DOFs
+				Eigen::VectorXd qdd;
+				qdd = D[k].qdd.block(0,i,n_real,1);
+// 				qdd = qdd.cwiseAbs();
+// 				qdd = qdd*(-0.01);
+// 				qdd = qdd.array().exp();
+// 				Eigen::VectorXd ones_col;
+// 				ones_col.setOnes(qdd.size(),1);
+// 				r = r + (ones_col-qdd)/n_real;
+				qdd = qdd.cwiseProduct(qdd);
+				r = r + qdd;
+				
+// 				std::cout << "ydd = " << D[k].dmp[i].ydd.block(0,0,n_real,1).transpose() << std::endl;
+// 				std::cout << "\nq = " << D[k].qdd.block(0,i,n_real,1).transpose() << std::endl;
+// 				std::cout << "sum(ydd.^2) = " << ydd.sum() << std::endl;
+// 				std::cout << "sum(qdd.^2) = " << qdd.sum() << std::endl;
+				
+// 			}
 		}
+		
+		if(_update_goal)
+			r = r*0.0001;
+		
+		//terminal cost: task specific
+		rt(rt.size()-1) = D[k].user_input_cost;
 		
 		Eigen::VectorXd rrt;
 		rrt.setZero(r.size()+rt.size());
@@ -515,6 +790,12 @@ Eigen::MatrixXd PI2::cost(std::vector< PI2Data > D)
 		rrt.block(r.size(),0,rt.size(),1) = rt;
 		R.col(k) = rrt;
 	}
+	
+	if(n_reps==1)
+		std::cout << "sum(r_ydd) = " << r_ydd.sum() << std::endl;
+	
+	std::cout << "cost function: sum(R) = " << R.colwise().sum() << " ";
+	
 	return R;
 }
 
@@ -680,6 +961,28 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 		_dmps[i].change_w(_dmps[i].getW() + final_dtheta.row(i).transpose());
 // 		std::cout << "dtheta " << i << ": " << final_dtheta.row(i) << std::endl;
 	}
+	
+	//update goal parameters in _dmps
+	if(_update_goal)
+	{
+		std::cout << "updated goal:";
+		Eigen::ArrayXd P0 = P.row(0);
+		Eigen::VectorXd dg;
+		dg.setZero(_n_dmps);
+		for(int i=0; i<_n_dmps; i++)
+		{
+			for(int j=0; j<(int)D.size(); j++)
+			{
+				dg(i) += D[j].dmp[i].g_eps*P0(j);
+// 				std::cout << D[j].dmp[i].g_eps << " ";
+			}
+			_protocol.goal[i] += dg(i);
+			std::cout <<_protocol.goal[i] << " ";
+// 			std::cout << std::endl;
+		}
+		std::cout << std::endl;
+		std::cout << "delta_goal: " << dg.transpose() << std::endl;
+	}
 }
 
 void PI2::eeStateCallback(const baxter_core_msgs::EndpointState& msg)
@@ -689,8 +992,8 @@ void PI2::eeStateCallback(const baxter_core_msgs::EndpointState& msg)
 		if( std::abs((double)(msg.header.stamp.toSec() - _ee_current_time[_ee_record_count])) <0.01 ) // & ((msg.header.stamp - _ee_current_time).toSec() >=0) )
 		{
 // 			std::cout << "********************eeStateCallback******************************" << std::endl;
-// // 			std::cout << "ask for ee pose at time " << _ee_current_time[_ee_record_count] << std::endl;
-// // 			std::cout << "get ee pose at time " << msg.header.stamp.toSec() << std::endl;
+// 			std::cout << "ask for ee pose at time " << _ee_current_time[_ee_record_count] << std::endl;
+// 			std::cout << "get ee pose at time " << msg.header.stamp.toSec() << std::endl;
 // 			std::cout << "time difference is " << (double)(msg.header.stamp.toSec() - _ee_current_time[_ee_record_count]) << std::endl;
 			
 	// 		std::cout << "callback here: count = " << _ee_record_count << std::endl;
@@ -707,6 +1010,8 @@ void PI2::eeStateCallback(const baxter_core_msgs::EndpointState& msg)
 	// 		_average_ee_pose.orientation.w += msg.pose.orientation.w;
 			
 			_average_ee_pose[_ee_record_count] = msg.pose;
+			
+			_average_ee_pose_time_stamp[_ee_record_count] = (double)msg.header.stamp.toSec();
 			
 			_ee_record_count++;
 		}

@@ -1,0 +1,7 @@
+bool detect
+---
+bool bottle_hand
+bool bottle_tabletop
+bool hand_tabletop
+bool new_detector
+bool succeed

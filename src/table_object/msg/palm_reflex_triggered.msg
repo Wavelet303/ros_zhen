@@ -1,0 +1,1 @@
+bool palm_reflex_triggered

@@ -1,0 +1,3 @@
+moveit_msgs/CollisionObject bottle_cylinder
+geometry_msgs/Vector3 rpy
+geometry_msgs/Vector3 color

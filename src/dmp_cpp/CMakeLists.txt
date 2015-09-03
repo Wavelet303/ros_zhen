@@ -102,7 +102,7 @@ add_library(DMP src/dmp.cpp)
 ## Declare a cpp executable
 add_executable(dmp_example src/tools/dmp_example.cpp)
 add_executable(dmp_recorder src/tools/dmp_recorder.cpp)
-
+add_executable(read_matrix src/tools/read_matrix.cpp)
 
 target_link_libraries(
     DMP
@@ -117,6 +117,11 @@ target_link_libraries(
 target_link_libraries(
     dmp_recorder
     DMP
+)
+
+target_link_libraries(
+	read_matrix
+	DMP
 )
 
 #############

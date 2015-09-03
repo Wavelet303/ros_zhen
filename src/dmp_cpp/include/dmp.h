@@ -64,7 +64,7 @@ public:
 	 */
 	std::vector<Eigen::VectorXd> batch_fit(double duration, double dt, Eigen::VectorXd T, Eigen::VectorXd Td=Eigen::Matrix<double,-1,1>(), Eigen::VectorXd Tdd=Eigen::Matrix<double,-1,1>());
 	
-	Eigen::MatrixXd readMatrix(const char *filename, bool fromMatla=true);
+	Eigen::MatrixXd readMatrix(const char *filename, bool fromMatlab=true);
 	
 	inline Eigen::VectorXd getW() {return _w;};
 	

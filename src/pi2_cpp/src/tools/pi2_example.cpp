@@ -23,10 +23,12 @@ int main(int argc, char** argv)
 	pi2_example.readProtocol(std::string(argv[1]));
 	
 	clock_t begin = clock();
+	// run learning process
 	pi2_example.setROSNodeHandle(n);
 // 	pi2_example.initializeW(argv[2]);
 // 	pi2_example.runProtocol();
 	
+	// run learned result
 	pi2_example.loadLearnedW(argv[2]);
 	pi2_example.loadLearnedGoal(argv[2]);
 	pi2_example.runProtocolLearnedW();

@@ -57,6 +57,7 @@
 #include "ros_sec/Tracker/trackModel.h"
 #include "ros_sec/util/util.h"
 // #include "ros_sec/util/extract_clusters.h"
+#include <tf/tf.h>
 
 #include "table_object/miniBall.hpp"
 
@@ -113,9 +114,11 @@ std::vector<TableObject::track3D> block_tracker;
 std::vector<TableObject::trackModel> model_tracker;
 int focus_index = 0;
 
+Eigen::Affine3f toPlaneCoordinate;
 std::vector<Eigen::Affine3f> camToFingerCoordinate;
 std::vector<Eigen::Affine3f> camToCylinderCoordinate;
 std::vector<Eigen::Affine3f> camToBlockCoordinate;
+std::vector<Eigen::Affine3f> planeToBlockCoordinate;
 Eigen::Affine3f transformation;
 pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients ());
 
@@ -130,6 +133,8 @@ bool beginning = true;
 
 std::vector<CloudPtr> fingerWireframe;
 CloudPtr fingerWireframeInCamCoor(new Cloud);
+std::vector<double> finger_radius;
+std::vector<double> finger_height;
 
 std::vector<CloudPtr> cylinderWireframe;
 CloudPtr cylinderWireframeInCamCoor(new Cloud);
@@ -146,6 +151,9 @@ std::vector<int> block_index;
 std::vector<RefPointType> cylinder_center_point;
 
 boost::mutex updateModelMutex;
+
+Eigen::Vector3f gripper_center;
+Eigen::Vector3f gripper_ori;
 
 void handler(int sig) {
   void *array[10];
@@ -193,6 +201,13 @@ void keyboardEventOccurred (const pcl::visualization::KeyboardEvent &event,
             viewer->removeShape(boost::str(boost::format("%s%d") % "particle_info" % particle_index), v2);
             std::cout << "resume process" << std::endl;
             pause_for_observation = false;
+			
+// 			//save finger2 point cloud for dubugging
+// 			std::cout << "finger2 cylinder radius = " << finger_radius[1] << std::endl;
+// 			std::cout << "finger2 cylinder height = " << finger_height[1] << std::endl;
+// 			pcl::PCDWriter writer;
+// 			writer.write ("cloud_finger2.pcd", *cloud_finger2, false);
+// 			exit(1);
         }else{
             std::cout << "pause process" << std::endl;
             pause_for_observation = true;
@@ -357,6 +372,13 @@ int main(int argc, char **argv)
     std::string demo_name=argv[4];
     if(argc>5) step=std::atoi(argv[5]);
     std::string filename_pcd;
+	
+	// remove old recorded data
+	char folder_demo_name[100];
+	sprintf(folder_demo_name, "rm -r /home/zengzhen/Desktop/human_teaching/%s", demo_name.c_str());
+	system(folder_demo_name);
+	sprintf(folder_demo_name, "/home/zengzhen/Desktop/human_teaching/%s", demo_name.c_str());
+	mkdir(folder_demo_name, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
     
     /***************************************
     *  set up cloud, segmentation
@@ -429,6 +451,8 @@ int main(int argc, char **argv)
             
             double finger1_r = bottleDetector.getRadius();
             double finger1_length = bottleDetector.getHeight();
+			finger_radius.push_back(finger1_r);
+			finger_height.push_back(finger1_length);
             
             RefPointType finger1_center = bottleDetector.getCenter();
             Eigen::Vector3f finger1_ori = bottleDetector.getOrientation();
@@ -465,6 +489,8 @@ int main(int argc, char **argv)
             
             double finger2_r = bottleDetector.getRadius();
             double finger2_length = bottleDetector.getHeight();
+			finger_radius.push_back(finger2_r);
+			finger_height.push_back(finger2_length);
             
             RefPointType finger2_center = bottleDetector.getCenter();
             Eigen::Vector3f finger2_ori = bottleDetector.getOrientation();
@@ -500,12 +526,15 @@ int main(int argc, char **argv)
              ***********************************/
             Eigen::Vector3f center1(finger1_center.x, finger1_center.y, finger1_center.z);
             Eigen::Vector3f center2(finger2_center.x, finger2_center.y, finger2_center.z);
-            Eigen::Vector3f gripper_vector = (finger1_ori + finger2_ori)/2;
-            std::cout << "finger1_ori: " << finger1_ori.rows() << "\nfinger2_ori: " << finger2_ori.rows() << "\ngripper_vector: " << gripper_vector << "\n";
-            
-            Eigen::Affine3f toGripperCoordinate;
-            pcl::getTransformationFromTwoUnitVectorsAndOrigin(center2-center1, gripper_vector, (center1+center2)/2.0, toGripperCoordinate);
-            result_viewer->addCoordinateSystem(0.3, toGripperCoordinate.inverse(), "gripper_reference", viewport);
+			gripper_ori = (finger1_ori + finger2_ori)/2.0;
+			gripper_center = (center1+center2)/2.0;
+			
+			std::cout << "center1: " << center1.transpose() << "\ncenter2: " << center2.transpose() << "\n";
+			std::cout << "finger1_ori: " << finger1_ori.transpose() << "\nfinger2_ori: " << finger2_ori.transpose() << "\ngripper_vector: " << gripper_ori.transpose() << "\n";
+			
+			Eigen::Affine3f toGripperCoordinate;
+			pcl::getTransformationFromTwoUnitVectorsAndOrigin(center2-center1, gripper_ori, gripper_center, toGripperCoordinate);
+			result_viewer->addCoordinateSystem(0.3, toGripperCoordinate.inverse(), "gripper_reference", viewport);
             
 //             std::cout << "please input the cluster index of cylinder\n";
 //             std::cin >> cylinder_id;
@@ -515,12 +544,10 @@ int main(int argc, char **argv)
 //             std::cin >> block_id;
 //             std::cout << "block_id set to " << block_id << std::endl;
 
-            
-            Eigen::Affine3f toPlaneCoordinate;
             std::vector<Eigen::Vector3f> planeCoorInCamCoor = initialSeg.getPlaneCoorInCamCoor();
             pcl::getTransformationFromTwoUnitVectorsAndOrigin(planeCoorInCamCoor[1], planeCoorInCamCoor[2], planeCoorInCamCoor[3], toPlaneCoordinate);
             
-//             result_viewer->addCoordinateSystem(0.3, toPlaneCoordinate.inverse(), "plane_reference", 0, viewport);
+            result_viewer->addCoordinateSystem(0.3, toPlaneCoordinate.inverse(), "plane_reference", viewport);
             
             //check each cluster should be modeled as cylinder or block
             for(int i=0; i<clusters.size(); i++)
@@ -732,12 +759,13 @@ int main(int argc, char **argv)
                     block_center.y() = (rrPts[0].y+rrPts[1].y+rrPts[2].y+rrPts[3].y)/4 + p0.y();
                     block_center.z() = block_h[block_index.size()]/2;
                     
-                    Eigen::Affine3f planeToBlockCoordinate;
+                    Eigen::Affine3f planeToBlockCoordinateTemp;
         //             block_y_axis.x() = -1; block_y_axis.y() = 0; block_y_axis.z() = 0;
         //             block_center.x() = 0.1; block_center.y() = 0.2; block_center.z() = 0.2;
-                    pcl::getTransformationFromTwoUnitVectorsAndOrigin(block_y_axis, block_z_axis, block_center, planeToBlockCoordinate);
+					pcl::getTransformationFromTwoUnitVectorsAndOrigin(block_y_axis, block_z_axis, block_center, planeToBlockCoordinateTemp);
                     
-                    camToBlockCoordinate.push_back(planeToBlockCoordinate*toPlaneCoordinate);
+					camToBlockCoordinate.push_back(planeToBlockCoordinateTemp*toPlaneCoordinate);
+					planeToBlockCoordinate.push_back(planeToBlockCoordinateTemp);
                     
                     // adjust the x,y axis of the block coordinate frame based on the camera position
                     pcl::PointXYZ camera_origin(0,0,0);
@@ -754,15 +782,19 @@ int main(int argc, char **argv)
                     {
                         block_x_axis = -block_x_axis;
                         block_y_axis = -block_y_axis;
-                        pcl::getTransformationFromTwoUnitVectorsAndOrigin(block_y_axis, block_z_axis, block_center, planeToBlockCoordinate);
-                        camToBlockCoordinate[block_index.size()] = planeToBlockCoordinate*toPlaneCoordinate;
+						pcl::getTransformationFromTwoUnitVectorsAndOrigin(block_y_axis, block_z_axis, block_center, planeToBlockCoordinateTemp);
+						camToBlockCoordinate[block_index.size()] = planeToBlockCoordinateTemp*toPlaneCoordinate;
+						planeToBlockCoordinate[block_index.size()] = planeToBlockCoordinateTemp;
                     }
                     
                     TableObject::view3D::drawCoordinateSystem(camToBlockCoordinate[block_index.size()], result_viewer,
                                                               "block", block_index.size(), viewport);
                     TableObject::view3D::drawCuboidWireframe(camToBlockCoordinate[block_index.size()], block_w[block_index.size()], block_d[block_index.size()],
                                                              block_h[block_index.size()], result_viewer, block_index.size(), viewport);
-                    
+					
+					std::stringstream block_reference_id; 
+					block_reference_id << "block_reference" << block_index.size();
+					result_viewer->addCoordinateSystem(0.3, camToBlockCoordinate[block_index.size()].inverse(), block_reference_id.str(), viewport);
                     
                     block_index.push_back(i);
                 }else{
@@ -829,15 +861,15 @@ int main(int argc, char **argv)
                 ***************************************/
                 {
                     pcl::ScopeTime t_track("Tracker initialization");
-//                     TableObject::track3D tempTracker1(false);
-//                     tempTracker1.setTarget(cloud_finger1, finger1_center);
-//                     tempTracker1.initialize(true);
-//                     finger_tracker.push_back(tempTracker1);
-//                     
-//                     TableObject::track3D tempTracker2(false);
-//                     tempTracker2.setTarget(cloud_finger2, finger2_center);
-//                     tempTracker2.initialize(true);
-//                     finger_tracker.push_back(tempTracker2);
+                    TableObject::track3D tempTracker1(false);
+                    tempTracker1.setTarget(cloud_finger1, finger1_center);
+                    tempTracker1.initialize(true);
+                    finger_tracker.push_back(tempTracker1);
+                    
+                    TableObject::track3D tempTracker2(false);
+                    tempTracker2.setTarget(cloud_finger2, finger2_center);
+                    tempTracker2.initialize(true);
+                    finger_tracker.push_back(tempTracker2);
                     
                     for(int i=0; i<cylinder_index.size(); i++)
                     {
@@ -947,7 +979,7 @@ int main(int argc, char **argv)
             char buffer [100];
             strftime (buffer,100,"_%m%d%H%M%S",now);
 
-            tracked_datafile << "result/tracking_" << demo_name << "_" << index_start << "_" << index_end << buffer << ".txt";
+            tracked_datafile << "result/" << demo_name << "/tracking_" << demo_name << "_" << index_start << "_" << index_end << buffer << ".txt";
         }else{
 //             boost::mutex::scoped_lock updateLock(updateModelMutex);
 // std::cout << "update new frame start\n";            
@@ -1010,29 +1042,46 @@ int main(int argc, char **argv)
                 }
             }
             
+            Eigen::Affine3f camToFinger1Coordinate;
+            //track finger 1
+//             finger_tracker[0].track(cloud_finger1, transformation);
+// 			finger_tracker[0].viewTrackedCloud(result_viewer, boost::str(boost::format("%s%d") % "tracked_finger" % 0));
+// 			camToFinger1Coordinate = transformation.inverse();
+            
             //fitting cylilnder model to finger 1
             bottleDetector.setInputCloud(cloud_finger1);
             bottleDetector.fit();
-            Eigen::Affine3f camToFinger1Coordinate;
             bottleDetector.getTransformation(camToFinger1Coordinate);
             camToFingerCoordinate.push_back(camToFinger1Coordinate);
             
-            double finger1_r = bottleDetector.getRadius();
-            double finger1_length = bottleDetector.getHeight();
+//             double finger1_r = bottleDetector.getRadius();
+            double finger1_length = bottleDetector.getHeight();			
             
             RefPointType finger1_center = bottleDetector.getCenter();
-            Eigen::Vector3f finger1_ori = bottleDetector.getOrientation();
+			Eigen::Vector3f finger1_ori = bottleDetector.getOrientation();
+			finger1_center.x = finger1_center.x - (finger_height[0]-finger1_length)*finger1_ori[0]/2.0;
+			finger1_center.y = finger1_center.y - (finger_height[0]-finger1_length)*finger1_ori[1]/2.0;
+			finger1_center.z = finger1_center.z - (finger_height[0]-finger1_length)*finger1_ori[2]/2.0;
+			
+			Eigen::Vector3f yc1( 0, finger1_ori[2], -finger1_ori[1] ); 
+			yc1.normalize();
+			Eigen::Vector3f center1_vector(finger1_center.x, finger1_center.y, finger1_center.z);
+			pcl::getTransformationFromTwoUnitVectorsAndOrigin(yc1, finger1_ori, center1_vector, camToFinger1Coordinate); 
+            
+// 			float finger1_x, finger1_y, finger1_z, finger1_roll, finger1_pitch, finger1_yaw;
+// 			pcl::getTranslationAndEulerAngles(camToFinger1Coordinate, finger1_x, finger1_y, finger1_z, finger1_roll, finger1_pitch, finger1_yaw);
+// 			Eigen::Vector3f finger1_ori(finger1_roll, finger1_pitch, finger1_yaw);
             
 //             bottleDetector.drawCenter(result_viewer);
 //             bottleDetector.drawOrientation(result_viewer, "finger1_arrow");
             
-            
-//             result_viewer->addCoordinateSystem(0.3, camToFinger1Coordinate.inverse(), "finger1_reference", 0);
-            
-            fingerWireframe[0] = TableObject::genCylinderWireframe(finger1_r, finger1_length);
+//             fingerWireframe[0] = TableObject::genCylinderWireframe(finger1_r, finger1_length);
             
             TableObject::view3D::drawCylinderWireframe(camToFinger1Coordinate, fingerWireframe[0], 
                                                                result_viewer, "blue_finger", 1, viewport);
+// 			result_viewer->addCoordinateSystem(0.3, camToFinger1Coordinate.inverse(), "finger1_reference", viewport);
+			pcl::visualization::PointCloudColorHandlerRGBField<RefPointType> rgb_finger1(cloud_finger1);
+			result_viewer->addPointCloud<RefPointType>(cloud_finger1, rgb_finger1, "finger1", viewport);
             
             //opencv color filtering for fingertip_2
             {
@@ -1054,33 +1103,48 @@ int main(int argc, char **argv)
             bottleDetector.getTransformation(camToFinger2Coordinate);
             camToFingerCoordinate.push_back(camToFinger2Coordinate);
             
-            double finger2_r = bottleDetector.getRadius();
+//             double finger2_r = bottleDetector.getRadius();
             double finger2_length = bottleDetector.getHeight();
             
             RefPointType finger2_center = bottleDetector.getCenter();
             Eigen::Vector3f finger2_ori = bottleDetector.getOrientation();
+			finger2_center.x = finger2_center.x - (finger_height[1]-finger2_length)*finger2_ori[0]/2.0;
+			finger2_center.y = finger2_center.y - (finger_height[1]-finger2_length)*finger2_ori[1]/2.0;
+			finger2_center.z = finger2_center.z - (finger_height[1]-finger2_length)*finger2_ori[2]/2.0;
+			
+			Eigen::Vector3f yc2( 0, finger2_ori[2], -finger2_ori[1] ); 
+			yc2.normalize();
+			Eigen::Vector3f center2_vector(finger2_center.x, finger2_center.y, finger2_center.z);
+			pcl::getTransformationFromTwoUnitVectorsAndOrigin(yc2, finger2_ori, center2_vector, camToFinger2Coordinate); 
             
 //             bottleDetector.drawCenter(result_viewer);
 //             bottleDetector.drawOrientation(result_viewer, "finger2_arrow");
-            
-//             result_viewer->addCoordinateSystem(0.3, camToFinger1Coordinate.inverse(), "finger1_reference", 0);
-            fingerWireframe[1] = TableObject::genCylinderWireframe(finger2_r, finger2_length);
+			
+//             fingerWireframe[1] = TableObject::genCylinderWireframe(finger2_r, finger2_length);
             
             TableObject::view3D::drawCylinderWireframe(camToFinger2Coordinate, fingerWireframe[1], 
                                                                result_viewer, "orange_finger", 2, viewport);
+// 			result_viewer->addCoordinateSystem(0.3, camToFinger2Coordinate.inverse(), "finger2_reference", viewport);
+			pcl::visualization::PointCloudColorHandlerRGBField<RefPointType> rgb_finger2(cloud_finger2);
+			result_viewer->addPointCloud<RefPointType>(cloud_finger2, rgb_finger2, "finger2", viewport);
             
             /***********************************
              * get finger coordinate frame
              ***********************************/
-            Eigen::Vector3f center1(finger1_center.x, finger1_center.y, finger1_center.z);
-            Eigen::Vector3f center2(finger2_center.x, finger2_center.y, finger2_center.z);
-            Eigen::Vector3f gripper_vector = (finger1_ori + finger2_ori)/2;
-            std::cout << "finger1_ori: " << finger1_ori.rows() << "\nfinger2_ori: " << finger2_ori.rows() << "\ngripper_vector: " << gripper_vector << "\n";
+//             Eigen::Vector3f center1(finger1_center.x, finger1_center.y, finger1_center.z);
+			Eigen::Vector3f center1(finger1_center.x+finger1_ori[0]*finger_height[0]/2.0,finger1_center.y+finger1_ori[1]*finger_height[0]/2.0,finger1_center.z+finger1_ori[2]*finger_height[0]/2.0);
+			Eigen::Vector3f center2(finger2_center.x+finger2_ori[0]*finger_height[1]/2.0,finger2_center.y+finger2_ori[1]*finger_height[1]/2.0,finger2_center.z+finger2_ori[2]*finger_height[1]/2.0);
+			gripper_ori = (finger1_ori + finger2_ori)/2.0;
+			gripper_center = (center1+center2)/2.0;
+			
+			std::cout << "center1: " << center1.transpose() << "\ncenter2: " << center2.transpose() << "\n";
+			std::cout << "finger1_ori: " << finger1_ori.transpose() << "\nfinger2_ori: " << finger2_ori.transpose() << "\ngripper_vector: " << gripper_ori.transpose() << "\n";
             
             Eigen::Affine3f toGripperCoordinate;
-            pcl::getTransformationFromTwoUnitVectorsAndOrigin(center2-center1, gripper_vector, (center1+center2)/2.0, toGripperCoordinate);
-//             result_viewer->addCoordinateSystem(0.3, toGripperCoordinate.inverse(), "gripper_reference", 0);
+			pcl::getTransformationFromTwoUnitVectorsAndOrigin(center2-center1, gripper_ori, gripper_center, toGripperCoordinate);
+			result_viewer->addCoordinateSystem(0.3, toGripperCoordinate.inverse(), "gripper_reference", viewport);
             
+			result_viewer->addCoordinateSystem(0.3, toPlaneCoordinate.inverse(), "plane_reference", viewport);
             
             /***************************************
              *  Tracking objects
@@ -1138,12 +1202,17 @@ int main(int argc, char **argv)
 //                     block_tracker[i].viewTrackedCloud(result_viewer, boost::str(boost::format("%s%d") % "tracked_block" % i));
                     
                     camToBlockCoordinate[i] = transformation.inverse();
+					planeToBlockCoordinate[i] = camToBlockCoordinate[i]*toPlaneCoordinate.inverse();
                     //update block coordinate system                    
 //                     TableObject::view3D::drawCoordinateSystem(transformation.inverse(), result_viewer,
 //                                                               "block", i, viewport);
                     
                     TableObject::view3D::drawCuboidWireframe(camToBlockCoordinate[i], block_w[i], block_d[i], block_h[i],
                                                              result_viewer, i, viewport);
+					
+					std::stringstream block_reference_id; 
+					block_reference_id << "block_reference" << i;
+					result_viewer->addCoordinateSystem(0.3, camToBlockCoordinate[i].inverse(), block_reference_id.str(), viewport);
                     
                     if(i==focus_index)
                     {
@@ -1192,6 +1261,8 @@ int main(int argc, char **argv)
         result_viewer->removeAllPointClouds();
         result_viewer->removeAllShapes();
         result_viewer->removeCoordinateSystem("gripper_reference");
+		result_viewer->removeCoordinateSystem("finger1_reference");
+		result_viewer->removeCoordinateSystem("finger2_reference");
         
         for(int i=0; i<cylinder_index.size(); i++)
         {
@@ -1212,6 +1283,35 @@ int main(int argc, char **argv)
 
 // std::cout << "remove all stuff ended\n";
 //         updateLock.unlock();
+		
+		//record gripper pose in table plane frame, and transformation from plane to block
+		std::ofstream record_file1;
+		char buffer[100];
+		sprintf(buffer, "/home/zengzhen/Desktop/human_teaching/%s/gripper_pose_in_plane.txt", demo_name.c_str());
+		record_file1.open (buffer, ios::app);
+		
+		gripper_center = toPlaneCoordinate*gripper_center;
+		gripper_ori = toPlaneCoordinate.rotation()*gripper_ori;
+		
+		tf::Quaternion gripper_pose_euler;
+		gripper_pose_euler.setRPY(gripper_ori[0], gripper_ori[1], gripper_ori[2]);
+		geometry_msgs::Quaternion gripper_pose_quat;
+		tf::quaternionTFToMsg(gripper_pose_euler, gripper_pose_quat);
+		
+// 		record_file1 << gripper_center[0] << " " << gripper_center[1] << " " << gripper_center[2] << " " 
+// 										  << gripper_pose_quat.x << " " << gripper_pose_quat.y << " " << gripper_pose_quat.z << " " << gripper_pose_quat.w << std::endl;
+		record_file1 << gripper_center.transpose() << " " << gripper_ori.transpose() << std::endl;
+		record_file1.close();
+		
+		for(int i=0; i<planeToBlockCoordinate.size(); i++)
+		{	
+			std::ofstream record_file2;
+			sprintf(buffer, "/home/zengzhen/Desktop/human_teaching/%s/plane_to_block%d.txt", demo_name.c_str(), i);
+			record_file2.open (buffer, ios::app);
+			
+			record_file2 << planeToBlockCoordinate[i].matrix() << "\n";
+			record_file2.close();
+		}
     
         idx=idx+step;
     }

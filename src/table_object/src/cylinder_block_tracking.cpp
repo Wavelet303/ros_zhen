@@ -98,8 +98,8 @@ CloudPtr cloud_finger2(new Cloud);
 // TableObject::colorDetector finger1Detector(0,80,40,70,50,120); //right: dark blue
 // TableObject::colorDetector finger2Detector(120,170,30,70,0,100); //left
 
-TableObject::colorDetector finger1Detector(109,160,100,160,25,70); //right: bright yellow
-TableObject::colorDetector finger2Detector(60,120,10,60, 0,90); //right: dark red
+TableObject::colorDetector finger1Detector(85,160,70,160,10,70); //right: bright yellow
+TableObject::colorDetector finger2Detector(50,90,20,40, 20,90); //right: dark red
 
 pcl::PointIndices f1_indices;
 pcl::PointIndices f2_indices;
@@ -650,7 +650,7 @@ int main(int argc, char **argv)
                 writer.write<pcl::Normal> (ss_normal.str (), *normals, false);
                 
                 // fit either cuboid or cylinder model to cluster_i
-                if(clusters_of_normals.size()<4){
+                if(clusters_of_normals.size()<3){
                     CloudPtr blockInCamCoor (new Cloud);
                     pcl::copyPointCloud (*cloud_objects, clusters[i], *blockInCamCoor);
                     

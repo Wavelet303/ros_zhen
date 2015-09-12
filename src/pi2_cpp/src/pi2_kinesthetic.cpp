@@ -1,5 +1,5 @@
 /**
- * \file        pi2.cpp
+ * \file        pi2_kinesthetic.cpp
  * \author      Zhen Zeng (zengzhen@umich.edu) 
  */
 
@@ -93,12 +93,12 @@ void PI2::readProtocol(std::string protocol_name)
 			>>_protocol.n_reuse))
 		{
 			std::cout << "error reading porotocol file\n";
-            exit(1);
+			exit(1);
 		}
 	}
 	
 	std::cout << _protocol.duration << " " <<_protocol.stdv << " " <<_protocol.reps << " " << _protocol.cost_function << " " << _protocol.updates << " " 
-			  << _protocol.basis_noise << " " << _protocol.n_reuse << "\n";
+	<< _protocol.basis_noise << " " << _protocol.n_reuse << "\n";
 }
 
 void PI2::initializeW(char* dmp_folder_name)
@@ -112,15 +112,9 @@ void PI2::initializeW(char* dmp_folder_name)
 		/****************************
 		 * kinesthetic teaching
 		 * **************************/
-// 		sprintf (buffer, "/home/zengzhen/Desktop/kinesthetic_teaching/%s/dmp%d_smooth.txt", dmp_folder_name, i);
-// 		read_T= _dmps[i].readMatrix(buffer, false);
-		
-		/****************************
-		 * external observation
-		 * **************************/
-		sprintf (buffer, "/home/zengzhen/Desktop/human_teaching/%s/dmps/seg%d/dmp%d.txt", dmp_folder_name, 0, i);
-		read_T= _dmps[i].readMatrix(buffer, true);
-// 		std::cout << "read file T = " << read_T << std::endl; 
+		sprintf (buffer, "/home/zengzhen/Desktop/kinesthetic_teaching/%s/dmp%d_smooth.txt", dmp_folder_name, i);
+		read_T= _dmps[i].readMatrix(buffer, false);
+		// 		std::cout << "read file T = " << read_T << std::endl; 
 		
 		Eigen::Map<Eigen::VectorXd> T(read_T.data(),read_T.cols()*read_T.rows(),1);
 		_dmps[i].batch_fit(0.01*T.size(), 0.01, T); //0.01s corresponds to 100Hz at which endpoint state is published/received
@@ -253,17 +247,17 @@ void PI2::runProtocol()
 		std::cout << std::endl;
 		
 		/**********************************************************************
-		* run again to see how much the cost varies given the exact same DMP
-		***********************************************************************/
-// 		run_rollouts(D_eval_series, p_eval,1, &infile);
-// 		
-// 		//print out commanded trajectory
-// 		std::cout << D_eval_series[0].dmp[0].y.transpose() << std::endl; //position.x trajectory
-// 		
-// 		//compute all costs in batch form, as this is faster in matlab
-// 		R_eval = cost(D_eval_series); 
-// 		std::cout << std::endl;
-// 		exit(1);
+		 * run again to see how much the cost varies given the exact same DMP
+		 ***********************************************************************/
+		// 		run_rollouts(D_eval_series, p_eval,1, &infile);
+		// 		
+		// 		//print out commanded trajectory
+		// 		std::cout << D_eval_series[0].dmp[0].y.transpose() << std::endl; //position.x trajectory
+		// 		
+		// 		//compute all costs in batch form, as this is faster in matlab
+		// 		R_eval = cost(D_eval_series); 
+		// 		std::cout << std::endl;
+		// 		exit(1);
 		
 		if(i==0)
 		{
@@ -322,7 +316,7 @@ void PI2::runProtocol()
 	
 	for(int i=0; i<_n_dmps; i++)
 	{
-// 		std::cout << _dmps[i].getW().transpose() << std::endl;
+		// 		std::cout << _dmps[i].getW().transpose() << std::endl;
 		_dmps[i].writeWToFile(_dmp_folder_name, i);
 	}
 	
@@ -352,7 +346,7 @@ void PI2::runProtocolLearnedW()
 	p_eval.reps = 1;
 	p_eval.stdv = 0;
 	p_eval.n_reuse = 0;
-		
+	
 	run_rollouts(D_eval_series, p_eval,1);
 }
 
@@ -372,66 +366,6 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 	// generate desired trajectory
 	for(int k = start; k<p.reps; k++ )
 	{
-		// get current endpoint pose in reference frame
-		tf::TransformListener listener;
-		ros::Rate rate(10.0);
-		bool receivedTransformation = false;
-		std::stringstream block_link_id; 
-		block_link_id << "block_link" << _reference_id;
-		tf::StampedTransform transform;
-		while (!receivedTransformation)
-		{
-			receivedTransformation = true;
-			try{
-				listener.lookupTransform(block_link_id.str(), "/left_gripper", ros::Time(0), transform);
-// 				listener.lookupTransform("/camera_link", block_link_id.str(), ros::Time(0), transform); // only here for validation
-			}
-			catch (tf::TransformException ex){
-				ROS_ERROR("%s",ex.what());
-				ros::Duration(1.0).sleep();
-				receivedTransformation = false;
-			}
-			
-// 			if(receivedTransformation)
-// 			{
-// 				std::cout << "rotation = " << std::endl;
-// 				std::cout << transform.getBasis().getRow(0).getX() << " " << transform.getBasis().getRow(0).getY() << " " << transform.getBasis().getRow(0).getZ() << std::endl;
-// 				std::cout << transform.getBasis().getRow(1).getX() << " " << transform.getBasis().getRow(1).getY() << " " << transform.getBasis().getRow(1).getZ() << std::endl;
-// 				std::cout << transform.getBasis().getRow(2).getX() << " " << transform.getBasis().getRow(2).getY() << " " << transform.getBasis().getRow(2).getZ() << std::endl;
-// 				std::cout << "translation = " << transform.getOrigin().getX() << " " << transform.getOrigin().getY() << " " << transform.getOrigin().getZ() << std::endl;
-// 			}
-			rate.sleep();
-		}
-		
-		// change the starting pose (expressed in PCL, MATLAB fashion): current pose in selected block reference frame
-		// NOTE ROS takes in quaternion for (roll, pitch, yaw) but the rotation order is yaw,pitch,roll, which is the opposite from PCL, MATLAB
-		Eigen::Affine3f gripperToBlockTransformation;
-		gripperToBlockTransformation.matrix() << transform.getBasis().getRow(0).getX(), transform.getBasis().getRow(0).getY(), transform.getBasis().getRow(0).getZ(), transform.getOrigin().getX(),
-										transform.getBasis().getRow(1).getX(), transform.getBasis().getRow(1).getY(), transform.getBasis().getRow(1).getZ(), transform.getOrigin().getY(),
-										transform.getBasis().getRow(2).getX(), transform.getBasis().getRow(2).getY(), transform.getBasis().getRow(2).getZ(), transform.getOrigin().getZ(),
-										0,0,0,1;
-		std::cout << gripperToBlockTransformation.matrix() << std::endl;
-		
-		Eigen::Vector3f translation = gripperToBlockTransformation.translation();
-		Eigen::Quaternionf quaternion(gripperToBlockTransformation.rotation());
-// 		p.start[0] = translation[0];
-// 		p.start[1] = translation[1];
-// 		p.start[2] = translation[2];
-// 		p.start[3] = quaternion.x();
-// 		p.start[4] = quaternion.y();
-// 		p.start[5] = quaternion.z();
-// 		p.start[6] = quaternion.w();
-		
-// 		tf::Quaternion gripper_quat = transform.getRotation();
-// 		tf::Vector3 gripper_trans = transform.getOrigin();
-// 		p.start[0] = gripper_trans.getX();
-// 		p.start[1] = gripper_trans.getY();
-// 		p.start[2] = gripper_trans.getZ();
-// 		p.start[3] = gripper_quat.getX();
-// 		p.start[4] = gripper_quat.getY();
-// 		p.start[5] = gripper_quat.getZ();
-// 		p.start[6] = gripper_quat.getW();
-		
 		//reset the DMP
 		double goal_pos_exploration = 0.03*noise_mult;
 		double goal_ori_exploration = 0.07*noise_mult;
@@ -457,7 +391,7 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 			
 			for(int j=0; j<_n_dmps; j++)
 			{
-// 				printf("loop k=%d, n=%d, j=%d\n", k, n, j);
+				// 				printf("loop k=%d, n=%d, j=%d\n", k, n, j);
 				
 				Eigen::VectorXd epsilon;
 				epsilon.setZero(_n_basis);
@@ -469,27 +403,27 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 						epsilon(epsilon_ind) = _distribution(_generator)*std_eps;
 					
 				}else{ //this case only adds noise for the most active basis function,
-					   //and noise does not change during hte activity of the basis function
+					//and noise does not change during hte activity of the basis function
 					if(n==0)
 					{
 						epsilon(0)=_distribution(_generator)*std_eps;
 						epsilon.block(1,0, _n_basis-1,1) = epsilon.block(1,0, _n_basis-1,1)*0;
 						
 						//DEBUG load epsilon from file generated by Matlab
-// 						if(infile!=NULL)
-// 						{
-// 							std::getline(*infile, line);
-// 							std::istringstream iss(line);
-// 							double rnd_epsilon;
-// 							if(!(iss>>rnd_epsilon))
-// 							{
-// 								printf("loop k=%d, n=%d, j=%d: ", k, n, j);
-// 								std::cout << "error reading epsilon file\n";
-// 								exit(1);
-// 							}
-// 							epsilon(0) = rnd_epsilon;
-// // 							printf("n=%d: %.63f\n", n, epsilon(0));
-// 						}
+						// 						if(infile!=NULL)
+						// 						{
+						// 							std::getline(*infile, line);
+						// 							std::istringstream iss(line);
+						// 							double rnd_epsilon;
+						// 							if(!(iss>>rnd_epsilon))
+						// 							{
+						// 								printf("loop k=%d, n=%d, j=%d: ", k, n, j);
+						// 								std::cout << "error reading epsilon file\n";
+						// 								exit(1);
+						// 							}
+						// 							epsilon(0) = rnd_epsilon;
+						// // 							printf("n=%d: %.63f\n", n, epsilon(0));
+						// 						}
 					}else{
 						//what is the max activated basis function from the previous time step?
 						Eigen::ArrayXd psi_row_array = D[k].dmp[j].psi.row(n-1);
@@ -510,20 +444,20 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 							epsilon(ind_basis) = _distribution(_generator)*std_eps;
 							
 							//DEBUG load epsilon from file generated by Matlab
-// 							if(infile!=NULL)
-// 							{
-// 								std::getline(*infile, line);
-// 								std::istringstream iss(line);
-// 								double rnd_epsilon;
-// 								if(!(iss>>rnd_epsilon))
-// 								{
-// 									printf("loop k=%d, n=%d, j=%d: ", k, n, j);
-// 									std::cout << "error reading epsilon file\n";
-// 									exit(1);
-// 								}
-// 								epsilon(ind_basis) = rnd_epsilon;
-// // 								printf("n=%d: %.63f\n", n, epsilon(ind_basis));
-// 							}
+							// 							if(infile!=NULL)
+							// 							{
+							// 								std::getline(*infile, line);
+							// 								std::istringstream iss(line);
+							// 								double rnd_epsilon;
+							// 								if(!(iss>>rnd_epsilon))
+							// 								{
+							// 									printf("loop k=%d, n=%d, j=%d: ", k, n, j);
+							// 									std::cout << "error reading epsilon file\n";
+							// 									exit(1);
+							// 								}
+							// 								epsilon(ind_basis) = rnd_epsilon;
+							// // 								printf("n=%d: %.63f\n", n, epsilon(ind_basis));
+							// 							}
 						}else
 							epsilon = epsilon_prev.transpose();
 					}
@@ -550,40 +484,8 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 		
 		if(_n_dmps>=7)
 		{
-			// get transformation from selected block reference frame to robot base frame
-			// NOTE don't need this, ros tf can take care of that, just set the header frame id of the commanded ee pose to be the selected block reference frame
-// 			tf::TransformListener listener;
-// 			ros::Rate rate(10.0);
-// 			bool receivedTransformation = false;
-// 			std::stringstream block_link_id; 
-// 			block_link_id << "block_link" << _reference_id;
-// 			while (!receivedTransformation)
-// 			{
-// 				receivedTransformation = true;
-// 				try{
-// 					listener.lookupTransform("base", block_link_id.str(), ros::Time(0), _reference_to_base_transform);
-// 					// 				listener.lookupTransform("/camera_link", block_link_id.str(), ros::Time(0), transform); // only here for validation
-// 				}
-// 				catch (tf::TransformException ex){
-// 					ROS_ERROR("%s",ex.what());
-// 					ros::Duration(1.0).sleep();
-// 					receivedTransformation = false;
-// 				}
-// 				
-// 				// 			if(receivedTransformation)
-// 				// 			{
-// 				// 				std::cout << "rotation = " << std::endl;
-// 				// 				std::cout << _reference_to_base_transform.getBasis().getRow(0).getX() << " " << _reference_to_base_transform.getBasis().getRow(0).getY() << " " << _reference_to_base_transform.getBasis().getRow(0).getZ() << std::endl;
-// 				// 				std::cout << _reference_to_base_transform.getBasis().getRow(1).getX() << " " << _reference_to_base_transform.getBasis().getRow(1).getY() << " " << _reference_to_base_transform.getBasis().getRow(1).getZ() << std::endl;
-// 				// 				std::cout << _reference_to_base_transform.getBasis().getRow(2).getX() << " " << _reference_to_base_transform.getBasis().getRow(2).getY() << " " << _reference_to_base_transform.getBasis().getRow(2).getZ() << std::endl;
-// 				// 				std::cout << "translation = " << _reference_to_base_transform.getOrigin().getX() << " " << _reference_to_base_transform.getOrigin().getY() << " " << _reference_to_base_transform.getOrigin().getZ() << std::endl;
-// 				// 			}
-// 				rate.sleep();
-// 			}
-			
 			//run generated desired trajectory on Baxter
 			run_baxter(D, k);
-			exit(1);
 		}
 	}
 }
@@ -619,46 +521,25 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 		
 		//command previously generated trajectory to Baxter
 		for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
-		{		
-			//TODO convert PCL/MATLAB fashion quaternion into ROS TF fashion quaternion
-			//NOTE ROS takes in quaternion for (roll, pitch, yaw) but the rotation order is yaw,pitch,roll, which is the opposite from PCL, MATLAB
-			Eigen::Quaternionf eigen_quaternion(D[trial_index].dmp[3].y(n), D[trial_index].dmp[4].y(n), D[trial_index].dmp[5].y(n), D[trial_index].dmp[6].y(n));
-			Eigen::Matrix3f eigen_rotation_matrix = eigen_quaternion.toRotationMatrix();
-			tf::Matrix3x3 tf_rotation_matrix(eigen_rotation_matrix(0,0), eigen_rotation_matrix(0,1), eigen_rotation_matrix(0,2),
-											 eigen_rotation_matrix(1,0), eigen_rotation_matrix(1,1), eigen_rotation_matrix(1,2),
-											 eigen_rotation_matrix(2,0), eigen_rotation_matrix(2,1), eigen_rotation_matrix(2,2));
-			tf::Quaternion tf_quaterion;
-			tf_rotation_matrix.getRotation(tf_quaterion);
-// 			D[trial_index].dmp[3].y(n) = tf_quaterion.getX();
-// 			D[trial_index].dmp[4].y(n) = tf_quaterion.getY();
-// 			D[trial_index].dmp[5].y(n) = tf_quaterion.getZ();
-// 			D[trial_index].dmp[6].y(n) = tf_quaterion.getW();
-			
+		{			
 			//construct left limb endpoint msg (all DOFs at the same time step)
 			geometry_msgs::PoseStamped ee_pose;
 			ee_pose.header.stamp = ros::Time::now();
-// 			ee_pose.header.frame_id = "base";
-			std::stringstream block_link_id; 
-			block_link_id << "block_link" << _reference_id;
-			ee_pose.header.frame_id = block_link_id.str();
-			
-// 			ee_pose.pose.position.x = D[trial_index].dmp[0].y(n);
-// 			ee_pose.pose.position.y = D[trial_index].dmp[1].y(n);
-// 			ee_pose.pose.position.z = D[trial_index].dmp[2].y(n);
-// 			ee_pose.pose.orientation.x = D[trial_index].dmp[3].y(n);
-// 			ee_pose.pose.orientation.y = D[trial_index].dmp[4].y(n);
-// 			ee_pose.pose.orientation.z = D[trial_index].dmp[5].y(n);
-// 			ee_pose.pose.orientation.w = D[trial_index].dmp[6].y(n);
-			
-			//DEBUG: test whether the starting position is configured correctly
-			//RESULT: yes, correct
-			ee_pose.pose.position.x = D[trial_index].dmp[0].y(0);
-			ee_pose.pose.position.y = D[trial_index].dmp[1].y(0);
-			ee_pose.pose.position.z = D[trial_index].dmp[2].y(0);
-			ee_pose.pose.orientation.x = D[trial_index].dmp[3].y(0);
-			ee_pose.pose.orientation.y = D[trial_index].dmp[4].y(0);
-			ee_pose.pose.orientation.z = D[trial_index].dmp[5].y(0);
-			ee_pose.pose.orientation.w = D[trial_index].dmp[6].y(0);
+			ee_pose.header.frame_id = "base";
+			// 			ee_pose.pose.position.x = 0.3+0.001*n;
+			// 			ee_pose.pose.position.y = 0.6;
+			// 			ee_pose.pose.position.z = 0.05;
+			// 			ee_pose.pose.orientation.x = -0.018;
+			// 			ee_pose.pose.orientation.y = 0.994;
+			// 			ee_pose.pose.orientation.z = -0.003;
+			// 			ee_pose.pose.orientation.w = 0.111;
+			ee_pose.pose.position.x = D[trial_index].dmp[0].y(n);
+			ee_pose.pose.position.y = D[trial_index].dmp[1].y(n);
+			ee_pose.pose.position.z = D[trial_index].dmp[2].y(n);
+			ee_pose.pose.orientation.x = D[trial_index].dmp[3].y(n);
+			ee_pose.pose.orientation.y = D[trial_index].dmp[4].y(n);
+			ee_pose.pose.orientation.z = D[trial_index].dmp[5].y(n);
+			ee_pose.pose.orientation.w = D[trial_index].dmp[6].y(n);
 			
 			//call IKService to get desired joint positions
 			_srv.request.pose_stamp.push_back(ee_pose);
@@ -679,12 +560,12 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 			if(all_valid)
 			{
 				ROS_INFO("SUCCESS - All Valid Joint Solution Found");
-// 					for(int i=0; i<(int)_srv.response.joints[0].name.size(); i++)
-// 						std::cout << _srv.response.joints[0].name[i] << " ";
-// 					std::cout << std::endl;
-// 					for(int i=0; i<(int)_srv.response.joints[0].position.size(); i++)
-// 						std::cout << _srv.response.joints[0].position[i] << " ";
-// 					std::cout << std::endl;
+				// 					for(int i=0; i<(int)_srv.response.joints[0].name.size(); i++)
+				// 						std::cout << _srv.response.joints[0].name[i] << " ";
+				// 					std::cout << std::endl;
+				// 					for(int i=0; i<(int)_srv.response.joints[0].position.size(); i++)
+				// 						std::cout << _srv.response.joints[0].position[i] << " ";
+				// 					std::cout << std::endl;
 			}else
 				ROS_INFO("INVALID POSE - Not all Valid Joint Solution Found.");
 		}
@@ -693,7 +574,7 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 			ROS_ERROR("Failed to call service add_two_ints");
 			exit(1);
 		}
-			
+		
 		ros::Time begin = ros::Time::now();
 		double time_offset = 2; //5 is safe
 		
@@ -707,9 +588,9 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 			msg.command = _srv.response.joints[n].position;
 			msg.command.push_back(100.0);
 			
-// 			std::cout << "**********************run baxter*********************************" << std::endl;
-// 			std::cout << "current time from starting time = " << (ros::Time::now()-begin).toSec() << std::endl;
-// 			std::cout << "time_offset = " << time_offset << std::endl;
+			// 			std::cout << "**********************run baxter*********************************" << std::endl;
+			// 			std::cout << "current time from starting time = " << (ros::Time::now()-begin).toSec() << std::endl;
+			// 			std::cout << "time_offset = " << time_offset << std::endl;
 			//command Baxter to the desired joint position
 			_ee_current_time.push_back(begin.toSec()+time_offset);
 			while((ros::Time::now()-begin).toSec()<time_offset)
@@ -720,18 +601,18 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 				spinner.stop();
 			}
 			
-// 			if(n==10)
-// 			{
-// // 				while((ros::Time::now()-begin).toSec()<time_offset+0.5) //don't need this beyong this test(since n is double the length duration/dt)
-// // 					_publisher.publish(msg);
-// 				
-// 				for(int nn=0; nn<11; nn++)
-// 				{
-// 					printf("position: %f, %f, %f\n", _average_ee_pose[nn].position.x, _average_ee_pose[nn].position.y, _average_ee_pose[nn].position.z);
-// 					printf("orientation: %f, %f, %f, %f\n", _average_ee_pose[nn].orientation.x, _average_ee_pose[nn].orientation.y, _average_ee_pose[nn].orientation.z, _average_ee_pose[nn].orientation.w);
-// 				}
-// 				exit(1);
-// 			}
+			// 			if(n==10)
+			// 			{
+			// // 				while((ros::Time::now()-begin).toSec()<time_offset+0.5) //don't need this beyong this test(since n is double the length duration/dt)
+			// // 					_publisher.publish(msg);
+			// 				
+			// 				for(int nn=0; nn<11; nn++)
+			// 				{
+			// 					printf("position: %f, %f, %f\n", _average_ee_pose[nn].position.x, _average_ee_pose[nn].position.y, _average_ee_pose[nn].position.z);
+			// 					printf("orientation: %f, %f, %f, %f\n", _average_ee_pose[nn].orientation.x, _average_ee_pose[nn].orientation.y, _average_ee_pose[nn].orientation.z, _average_ee_pose[nn].orientation.w);
+			// 				}
+			// 				exit(1);
+			// 			}
 		}
 		
 		if(_ee_record_count != (int)_average_ee_pose.size())
@@ -740,65 +621,65 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 			exit(1);
 		}
 		
-// 		for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
-// 		{
-// 			printf("position: %f, %f, %f\n", _average_ee_pose[n].position.x, _average_ee_pose[n].position.y, _average_ee_pose[n].position.z);
-// 			printf("orientation: %f, %f, %f, %f\n", _average_ee_pose[n].orientation.x, _average_ee_pose[n].orientation.y, _average_ee_pose[n].orientation.z, _average_ee_pose[n].orientation.w);
-// 		}
-
-
+		// 		for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
+		// 		{
+		// 			printf("position: %f, %f, %f\n", _average_ee_pose[n].position.x, _average_ee_pose[n].position.y, _average_ee_pose[n].position.z);
+		// 			printf("orientation: %f, %f, %f, %f\n", _average_ee_pose[n].orientation.x, _average_ee_pose[n].orientation.y, _average_ee_pose[n].orientation.z, _average_ee_pose[n].orientation.w);
+		// 		}
+		
+		
 		int steps = D[trial_index].dmp[0].y.size();		
-// 		if(_update_goal)
-// 		{
-// 			//close gripper - grasp
-// 			baxter_core_msgs::EndEffectorCommand gripper_command;
-// 			gripper_command.id = 65664;
-// 			gripper_command.command = baxter_core_msgs::EndEffectorCommand::CMD_GRIP;
-// 			_gripper_publiser.publish(gripper_command);
-// 			ros::Duration(1).sleep();
-// 			
-// 			//increase z value - lift
-// 			geometry_msgs::PoseStamped ee_pose;
-// 			ee_pose.header.stamp = ros::Time::now();
-// 			ee_pose.header.frame_id = "base";
-// 			ee_pose.pose.position.x = D[trial_index].dmp[0].y(steps-1);
-// 			ee_pose.pose.position.y = D[trial_index].dmp[1].y(steps-1);
-// 			ee_pose.pose.position.z = D[trial_index].dmp[2].y(steps-1)+0.2;
-// 			ee_pose.pose.orientation.x = D[trial_index].dmp[3].y(steps-1);
-// 			ee_pose.pose.orientation.y = D[trial_index].dmp[4].y(steps-1);
-// 			ee_pose.pose.orientation.z = D[trial_index].dmp[5].y(steps-1);
-// 			ee_pose.pose.orientation.w = D[trial_index].dmp[6].y(steps-1);
-// 			_srv.request.pose_stamp.clear();
-// 			_srv.request.pose_stamp.push_back(ee_pose);
-// 			if (_client.call(_srv))
-// 			{	
-// 				if(_srv.response.isValid[0])
-// 				{
-// 					ROS_INFO("SUCCESS - Valid Joint Solution Found for Lifting");
-// 				}else
-// 					ROS_INFO("INVALID POSE - Not all Valid Joint Solution Found.");
-// 			}
-// 			else
-// 			{
-// 				ROS_ERROR("Failed to call service add_two_ints");
-// 				exit(1);
-// 			}
-// 			msg.names = _srv.response.joints[0].name;
-// 			msg.names.push_back("left_gripper");
-// 			msg.command = _srv.response.joints[0].position;
-// 			msg.command.push_back(0.0);
-// 			begin = ros::Time::now();
-// 			while((ros::Time::now()-begin).toSec()<2)
-// 			{
-// 				_publisher.publish(msg);
-// 			}
-// 			ros::Duration(1).sleep();
-// 			
-// 			//open gripper - release
-// // 			gripper_command.command = baxter_core_msgs::EndEffectorCommand::CMD_RELEASE;
-// // 			_gripper_publiser.publish(gripper_command);
-// 		}
-
+		if(_update_goal)
+		{
+			//close gripper - grasp
+			baxter_core_msgs::EndEffectorCommand gripper_command;
+			gripper_command.id = 65664;
+			gripper_command.command = baxter_core_msgs::EndEffectorCommand::CMD_GRIP;
+			_gripper_publiser.publish(gripper_command);
+			ros::Duration(1).sleep();
+			
+			//increase z value - lift
+			geometry_msgs::PoseStamped ee_pose;
+			ee_pose.header.stamp = ros::Time::now();
+			ee_pose.header.frame_id = "base";
+			ee_pose.pose.position.x = D[trial_index].dmp[0].y(steps-1);
+			ee_pose.pose.position.y = D[trial_index].dmp[1].y(steps-1);
+			ee_pose.pose.position.z = D[trial_index].dmp[2].y(steps-1)+0.2;
+			ee_pose.pose.orientation.x = D[trial_index].dmp[3].y(steps-1);
+			ee_pose.pose.orientation.y = D[trial_index].dmp[4].y(steps-1);
+			ee_pose.pose.orientation.z = D[trial_index].dmp[5].y(steps-1);
+			ee_pose.pose.orientation.w = D[trial_index].dmp[6].y(steps-1);
+			_srv.request.pose_stamp.clear();
+			_srv.request.pose_stamp.push_back(ee_pose);
+			if (_client.call(_srv))
+			{	
+				if(_srv.response.isValid[0])
+				{
+					ROS_INFO("SUCCESS - Valid Joint Solution Found for Lifting");
+				}else
+					ROS_INFO("INVALID POSE - Not all Valid Joint Solution Found.");
+			}
+			else
+			{
+				ROS_ERROR("Failed to call service add_two_ints");
+				exit(1);
+			}
+			msg.names = _srv.response.joints[0].name;
+			msg.names.push_back("left_gripper");
+			msg.command = _srv.response.joints[0].position;
+			msg.command.push_back(0.0);
+			begin = ros::Time::now();
+			while((ros::Time::now()-begin).toSec()<2)
+			{
+				_publisher.publish(msg);
+			}
+			ros::Duration(1).sleep();
+			
+			//open gripper - release
+			// 			gripper_command.command = baxter_core_msgs::EndEffectorCommand::CMD_RELEASE;
+			// 			_gripper_publiser.publish(gripper_command);
+		}
+		
 		//ask for cost from user
 		double terminal_cost = 0.0;
 		if(_update_goal)
@@ -807,7 +688,7 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 			std::cin >> terminal_cost;
 		}
 		D[trial_index].user_input_cost = terminal_cost;
-
+		
 		//store D[trial_index]: q
 		for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
 		{
@@ -827,7 +708,7 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 			D[trial_index].qd.col(i).block(0,0,steps-1,1) = D[trial_index].q.col(i).block(1,0,steps-1,1);
 			D[trial_index].qd.col(i) = D[trial_index].qd.col(i) - D[trial_index].q.col(i);
 			D[trial_index].qd(steps-1,i) = 0;
-// 			D[trial_index].qd.col(i) = D[trial_index].qd.col(i)/D[trial_index].dt;
+			// 			D[trial_index].qd.col(i) = D[trial_index].qd.col(i)/D[trial_index].dt;
 			
 			for(int j=0; j<steps-1; j++)
 				D[trial_index].qd(j,i) = D[trial_index].qd(j,i)/(_average_ee_pose_time_stamp[j+1]-_average_ee_pose_time_stamp[j]);
@@ -839,17 +720,17 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 			D[trial_index].qdd.col(i).block(0,0,steps-1,1) = D[trial_index].qd.col(i).block(1,0,steps-1,1);
 			D[trial_index].qdd.col(i) = D[trial_index].qdd.col(i) - D[trial_index].qd.col(i);
 			D[trial_index].qdd(steps-1,i) = 0;
-// 			D[trial_index].qdd.col(i) = D[trial_index].qdd.col(i)/D[trial_index].dt;
+			// 			D[trial_index].qdd.col(i) = D[trial_index].qdd.col(i)/D[trial_index].dt;
 			
 			for(int j=0; j<steps-1; j++)
 				D[trial_index].qdd(j,i) = D[trial_index].qdd(j,i)/(_average_ee_pose_time_stamp[j+1]-_average_ee_pose_time_stamp[j]);
 		}
 		
-// 		std::cout << "y = " << D[trial_index].dmp[0].y.transpose() << std::endl;
-// 		std::cout << "\nq = " << D[trial_index].q.col(0).transpose() << std::endl;
-// 		std::cout << "\nqd = " << D[trial_index].qd.col(0).transpose() << std::endl;
-// 		std::cout << "\nqdd = " << D[trial_index].qdd.col(0).transpose() << std::endl;
-// 		exit(1);
+		// 		std::cout << "y = " << D[trial_index].dmp[0].y.transpose() << std::endl;
+		// 		std::cout << "\nq = " << D[trial_index].q.col(0).transpose() << std::endl;
+		// 		std::cout << "\nqd = " << D[trial_index].qd.col(0).transpose() << std::endl;
+		// 		std::cout << "\nqdd = " << D[trial_index].qdd.col(0).transpose() << std::endl;
+		// 		exit(1);
 	}
 }
 
@@ -876,41 +757,41 @@ Eigen::MatrixXd PI2::cost(std::vector< PI2Data > D)
 		for(int i=0; i<_n_dmps; i++)
 		{
 			//cost during trajectory
-// 			if(_n_dmps<7)
-// 			{
-				//implement the "acc2_exp.m" cost function + terminal cost
-				Eigen::VectorXd ydd;
-				ydd = D[k].dmp[i].ydd.block(0,0,n_real,1);
-// 				ydd = ydd.cwiseAbs();
-// 				ydd = ydd*(-0.01);
-// 				ydd = ydd.array().exp();
-// 				Eigen::VectorXd ones_col;
-// 				ones_col.setOnes(ydd.size(),1);
-// 				r = r + (ones_col-ydd)/n_real;
-				if(n_reps==1)
-				{
-					ydd = ydd.cwiseProduct(ydd);
-					r_ydd = r_ydd + ydd;
-				}
-// 			}else{
-				//cost = acceleration^2 sum over all DOFs
-				Eigen::VectorXd qdd;
-				qdd = D[k].qdd.block(0,i,n_real,1);
-// 				qdd = qdd.cwiseAbs();
-// 				qdd = qdd*(-0.01);
-// 				qdd = qdd.array().exp();
-// 				Eigen::VectorXd ones_col;
-// 				ones_col.setOnes(qdd.size(),1);
-// 				r = r + (ones_col-qdd)/n_real;
-				qdd = qdd.cwiseProduct(qdd);
-				r = r + qdd;
-				
-// 				std::cout << "ydd = " << D[k].dmp[i].ydd.block(0,0,n_real,1).transpose() << std::endl;
-// 				std::cout << "\nq = " << D[k].qdd.block(0,i,n_real,1).transpose() << std::endl;
-// 				std::cout << "sum(ydd.^2) = " << ydd.sum() << std::endl;
-// 				std::cout << "sum(qdd.^2) = " << qdd.sum() << std::endl;
-				
-// 			}
+			// 			if(_n_dmps<7)
+			// 			{
+			//implement the "acc2_exp.m" cost function + terminal cost
+			Eigen::VectorXd ydd;
+			ydd = D[k].dmp[i].ydd.block(0,0,n_real,1);
+			// 				ydd = ydd.cwiseAbs();
+			// 				ydd = ydd*(-0.01);
+			// 				ydd = ydd.array().exp();
+			// 				Eigen::VectorXd ones_col;
+			// 				ones_col.setOnes(ydd.size(),1);
+			// 				r = r + (ones_col-ydd)/n_real;
+			if(n_reps==1)
+			{
+				ydd = ydd.cwiseProduct(ydd);
+				r_ydd = r_ydd + ydd;
+			}
+			// 			}else{
+			//cost = acceleration^2 sum over all DOFs
+			Eigen::VectorXd qdd;
+			qdd = D[k].qdd.block(0,i,n_real,1);
+			// 				qdd = qdd.cwiseAbs();
+			// 				qdd = qdd*(-0.01);
+			// 				qdd = qdd.array().exp();
+			// 				Eigen::VectorXd ones_col;
+			// 				ones_col.setOnes(qdd.size(),1);
+			// 				r = r + (ones_col-qdd)/n_real;
+			qdd = qdd.cwiseProduct(qdd);
+			r = r + qdd;
+			
+			// 				std::cout << "ydd = " << D[k].dmp[i].ydd.block(0,0,n_real,1).transpose() << std::endl;
+			// 				std::cout << "\nq = " << D[k].qdd.block(0,i,n_real,1).transpose() << std::endl;
+			// 				std::cout << "sum(ydd.^2) = " << ydd.sum() << std::endl;
+			// 				std::cout << "sum(qdd.^2) = " << qdd.sum() << std::endl;
+			
+			// 			}
 		}
 		
 		if(_update_goal)
@@ -979,13 +860,13 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 	Eigen::MatrixXd expS = nominator.cwiseQuotient(denominator);
 	expS = expS.array().exp();
 	
-// 	std::cout << expS.format(_HeavyFmt) << std::endl; exit(1);
+	// 	std::cout << expS.format(_HeavyFmt) << std::endl; exit(1);
 	
 	//the probability of a trajectory
 	denominator = expS.rowwise().sum();
 	denominator = denominator*row_ones.transpose();
 	Eigen::MatrixXd P = expS.cwiseQuotient(denominator);
-    
+	
 	//compute the projected noise term. It is computationally more efficient to break this operation into inner product terms
 	std::vector<std::vector<Eigen::MatrixXd>> PMeps;
 	for(int i=0; i<_n_dmps; i++)
@@ -1012,7 +893,7 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 			gTeps_helper = D[k].dmp[j].bases.cwiseProduct(gTeps_helper);
 			gTeps = gTeps_helper.rowwise().sum();
 			
-// 			std::cout << gTeps.format(_HeavyFmt) << std::endl; exit(1);
+			// 			std::cout << gTeps.format(_HeavyFmt) << std::endl; exit(1);
 			
 			//compute g'g
 			Eigen::VectorXd gTg;
@@ -1020,7 +901,7 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 			gTg_helper = D[k].dmp[j].bases.cwiseProduct(D[k].dmp[j].bases);
 			gTg = gTg_helper.rowwise().sum();
 			
-// 			std::cout << gTg.format(_HeavyFmt) << std::endl; exit(1);
+			// 			std::cout << gTg.format(_HeavyFmt) << std::endl; exit(1);
 			
 			//compute P*M*eps = P*g*g'*eps/(g'g) from prevous results
 			Eigen::MatrixXd PMeps_member;
@@ -1053,13 +934,13 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 	//weighting accelerates learning
 	int m = (int)round(D[0].duration/D[0].dt);
 	Eigen::VectorXd N;
-    N.setZero(n);
+	N.setZero(n);
 	for(int i=0; i<m; i++)
 		N(i)=m-i;
 	Eigen::VectorXd col_ones;
 	col_ones.setOnes(n-m);
 	N.block(m,0,n-m,1) = col_ones;
-    
+	
 	//the final weighting vector takes the kernel activation into account
 	row_ones.setOnes(_n_basis);
 	Eigen::MatrixXd W = (N*row_ones.transpose()).cwiseProduct(D[0].dmp[0].psi);
@@ -1067,7 +948,7 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 	//...and normalize through time
 	col_ones.setOnes(n);
 	W = W.cwiseQuotient(col_ones*W.colwise().sum());
-    
+	
 	//compute the final parameter update for each DMP
 	std::vector<Eigen::MatrixXd> processed_W;
 	for(int i=0; i<_n_basis; i++)
@@ -1084,17 +965,17 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 		dtheta_mult_W_helper = dtheta[i].cwiseProduct(processed_W[i]);
 		dtheta_mult_W.push_back(dtheta_mult_W_helper.colwise().sum());
 	}
-    
+	
 	Eigen::MatrixXd final_dtheta;
 	final_dtheta.setZero(_n_dmps,_n_basis);
 	for(int i=0; i<_n_dmps; i++)
-			final_dtheta.row(i) = dtheta_mult_W[i];
-        
+		final_dtheta.row(i) = dtheta_mult_W[i];
+	
 	//and update the parameters by changing w in _dmps
 	for(int i=0; i<_n_dmps; i++)
 	{
 		_dmps[i].change_w(_dmps[i].getW() + final_dtheta.row(i).transpose());
-// 		std::cout << "dtheta " << i << ": " << final_dtheta.row(i) << std::endl;
+		// 		std::cout << "dtheta " << i << ": " << final_dtheta.row(i) << std::endl;
 	}
 	
 	//update goal parameters in _dmps
@@ -1109,11 +990,11 @@ void PI2::updatePI2(std::vector< PI2Data > D, Eigen::MatrixXd R)
 			for(int j=0; j<(int)D.size(); j++)
 			{
 				dg(i) += D[j].dmp[i].g_eps*P0(j);
-// 				std::cout << D[j].dmp[i].g_eps << " ";
+				// 				std::cout << D[j].dmp[i].g_eps << " ";
 			}
 			_protocol.goal[i] += dg(i);
 			std::cout <<_protocol.goal[i] << " ";
-// 			std::cout << std::endl;
+			// 			std::cout << std::endl;
 		}
 		std::cout << std::endl;
 		std::cout << "delta_goal: " << dg.transpose() << std::endl;
@@ -1126,23 +1007,23 @@ void PI2::eeStateCallback(const baxter_core_msgs::EndpointState& msg)
 	{
 		if( std::abs((double)(msg.header.stamp.toSec() - _ee_current_time[_ee_record_count])) <0.01 ) // & ((msg.header.stamp - _ee_current_time).toSec() >=0) )
 		{
-// 			std::cout << "********************eeStateCallback******************************" << std::endl;
-// 			std::cout << "ask for ee pose at time " << _ee_current_time[_ee_record_count] << std::endl;
-// 			std::cout << "get ee pose at time " << msg.header.stamp.toSec() << std::endl;
-// 			std::cout << "time difference is " << (double)(msg.header.stamp.toSec() - _ee_current_time[_ee_record_count]) << std::endl;
+			// 			std::cout << "********************eeStateCallback******************************" << std::endl;
+			// 			std::cout << "ask for ee pose at time " << _ee_current_time[_ee_record_count] << std::endl;
+			// 			std::cout << "get ee pose at time " << msg.header.stamp.toSec() << std::endl;
+			// 			std::cout << "time difference is " << (double)(msg.header.stamp.toSec() - _ee_current_time[_ee_record_count]) << std::endl;
 			
-	// 		std::cout << "callback here: count = " << _ee_record_count << std::endl;
-	// 		printf("position: %f, %f, %f\n", msg.pose.position.x, msg.pose.position.y, msg.pose.position.z);
-	// 		printf("orientation: %f, %f, %f, %f\n", msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w);
+			// 		std::cout << "callback here: count = " << _ee_record_count << std::endl;
+			// 		printf("position: %f, %f, %f\n", msg.pose.position.x, msg.pose.position.y, msg.pose.position.z);
+			// 		printf("orientation: %f, %f, %f, %f\n", msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w);
 			
-	// 		_average_ee_pose.position.x += msg.pose.position.x;
-	// 		_average_ee_pose.position.y += msg.pose.position.y;
-	// 		_average_ee_pose.position.z += msg.pose.position.z;
-	// 		
-	// 		_average_ee_pose.orientation.x += msg.pose.orientation.x;
-	// 		_average_ee_pose.orientation.y += msg.pose.orientation.y;
-	// 		_average_ee_pose.orientation.z += msg.pose.orientation.z;
-	// 		_average_ee_pose.orientation.w += msg.pose.orientation.w;
+			// 		_average_ee_pose.position.x += msg.pose.position.x;
+			// 		_average_ee_pose.position.y += msg.pose.position.y;
+			// 		_average_ee_pose.position.z += msg.pose.position.z;
+			// 		
+			// 		_average_ee_pose.orientation.x += msg.pose.orientation.x;
+			// 		_average_ee_pose.orientation.y += msg.pose.orientation.y;
+			// 		_average_ee_pose.orientation.z += msg.pose.orientation.z;
+			// 		_average_ee_pose.orientation.w += msg.pose.orientation.w;
 			
 			_average_ee_pose[_ee_record_count] = msg.pose;
 			

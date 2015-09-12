@@ -25,13 +25,14 @@ int main(int argc, char** argv)
 	clock_t begin = clock();
 	// run learning process
 	pi2_example.setROSNodeHandle(n);
-// 	pi2_example.initializeW(argv[2]);
-// 	pi2_example.runProtocol();
+	pi2_example.initializeW(argv[2]);
+	pi2_example.setReferenceId(argv[2]);
+	pi2_example.runProtocol();
 	
 	// run learned result
-	pi2_example.loadLearnedW(argv[2]);
-	pi2_example.loadLearnedGoal(argv[2]);
-	pi2_example.runProtocolLearnedW();
+// 	pi2_example.loadLearnedW(argv[2]);
+// 	pi2_example.loadLearnedGoal(argv[2]);
+// 	pi2_example.runProtocolLearnedW();
 	
 	clock_t end = clock();
 	double elapsed_secs = double(end - begin) / CLOCKS_PER_SEC;

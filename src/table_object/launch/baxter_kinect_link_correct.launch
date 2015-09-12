@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="tf" type="static_transform_publisher" name="cameraTransformer0" args="1.178, -0.009, -0.129, -2.273, -0.010, -0.008 /base /ar_marker_0 100" />
+    <node pkg="tf" type="static_transform_publisher" name="cameraTransformer1" args="0.58191 -0.75390 0.67878 2.30562 0.61275 0.01181 /ar_marker_0 /camera_link 100" />
+</launch>

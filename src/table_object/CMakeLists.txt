@@ -163,6 +163,7 @@ add_executable(touch_detector_server src/touch_detector_server.cpp)
 add_executable(touch_detector_client src/touch_detector_client.cpp)
 add_executable(palm_reflex_server src/palm_reflex_server.cpp)
 add_executable(close_gripper src/close_gripper.cpp)
+add_executable(robot_block_tracking src/robot_block_tracking.cpp)
 
 add_executable(action_learning src/action_learning.cpp)
 add_executable(test_learning src/test_learning.cpp)
@@ -347,6 +348,23 @@ target_link_libraries(
 target_link_libraries(
     example_normal_estimation
     ${PCL_LIBRARIES}
+)
+
+target_link_libraries(robot_block_tracking
+    ${PCL_LIBRARIES}
+    ${OpenCV_LIBS}
+    ${catkin_LIBRARIES}
+    /home/zengzhen/Documents/ros_sec_ws/devel/lib/libtable_obj_seg.so
+    /home/zengzhen/Documents/ros_sec_ws/devel/lib/libpcd_cloud.so
+    /home/zengzhen/Documents/ros_sec_ws/devel/lib/libtrack3D.so
+    /home/zengzhen/Documents/ros_sec_ws/devel/lib/libtrackModel.so
+    /home/zengzhen/Documents/ros_sec_ws/devel/lib/libview2D.so
+    /home/zengzhen/Documents/ros_sec_ws/devel/lib/libview3D.so
+    /home/zengzhen/Documents/ros_sec_ws/devel/lib/libutil.so
+    /home/zengzhen/Documents/ros_sec_ws/devel/lib/libcolorDetector.so
+    /home/zengzhen/Documents/ros_sec_ws/devel/lib/libtouchDetector.so
+    /home/zengzhen/Documents/ros_sec_ws/devel/lib/libbottleDetector.so
+#     /home/zengzhen/Documents/tools/Kinect/lib/libconvert_rgbd_to_image.so
 )
 
 #############

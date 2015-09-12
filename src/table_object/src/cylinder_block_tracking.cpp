@@ -98,8 +98,8 @@ CloudPtr cloud_finger2(new Cloud);
 // TableObject::colorDetector finger1Detector(0,80,40,70,50,120); //right: dark blue
 // TableObject::colorDetector finger2Detector(120,170,30,70,0,100); //left
 
-TableObject::colorDetector finger1Detector(85,160,70,160,10,70); //right: bright yellow
-TableObject::colorDetector finger2Detector(50,90,20,40, 20,90); //right: dark red
+TableObject::colorDetector finger1Detector(75,160,60,160,10,70); //right: bright yellow
+TableObject::colorDetector finger2Detector(50,110,10,50, 0,90); //right: dark red
 
 pcl::PointIndices f1_indices;
 pcl::PointIndices f2_indices;
@@ -119,6 +119,7 @@ std::vector<Eigen::Affine3f> camToFingerCoordinate;
 std::vector<Eigen::Affine3f> camToCylinderCoordinate;
 std::vector<Eigen::Affine3f> camToBlockCoordinate;
 std::vector<Eigen::Affine3f> planeToBlockCoordinate;
+Eigen::Affine3f toGripperCoordinate;
 Eigen::Affine3f transformation;
 pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients ());
 
@@ -528,11 +529,11 @@ int main(int argc, char **argv)
             Eigen::Vector3f center2(finger2_center.x, finger2_center.y, finger2_center.z);
 			gripper_ori = (finger1_ori + finger2_ori)/2.0;
 			gripper_center = (center1+center2)/2.0;
+			gripper_center = gripper_center-gripper_ori*0.135f; // to match endpoint position of Baxter
 			
 			std::cout << "center1: " << center1.transpose() << "\ncenter2: " << center2.transpose() << "\n";
 			std::cout << "finger1_ori: " << finger1_ori.transpose() << "\nfinger2_ori: " << finger2_ori.transpose() << "\ngripper_vector: " << gripper_ori.transpose() << "\n";
 			
-			Eigen::Affine3f toGripperCoordinate;
 			pcl::getTransformationFromTwoUnitVectorsAndOrigin(center2-center1, gripper_ori, gripper_center, toGripperCoordinate);
 			result_viewer->addCoordinateSystem(0.3, toGripperCoordinate.inverse(), "gripper_reference", viewport);
             
@@ -1136,11 +1137,11 @@ int main(int argc, char **argv)
 			Eigen::Vector3f center2(finger2_center.x+finger2_ori[0]*finger_height[1]/2.0,finger2_center.y+finger2_ori[1]*finger_height[1]/2.0,finger2_center.z+finger2_ori[2]*finger_height[1]/2.0);
 			gripper_ori = (finger1_ori + finger2_ori)/2.0;
 			gripper_center = (center1+center2)/2.0;
+			gripper_center = gripper_center-gripper_ori*0.135f; // to match endpoint position of Baxter
 			
 			std::cout << "center1: " << center1.transpose() << "\ncenter2: " << center2.transpose() << "\n";
 			std::cout << "finger1_ori: " << finger1_ori.transpose() << "\nfinger2_ori: " << finger2_ori.transpose() << "\ngripper_vector: " << gripper_ori.transpose() << "\n";
             
-            Eigen::Affine3f toGripperCoordinate;
 			pcl::getTransformationFromTwoUnitVectorsAndOrigin(center2-center1, gripper_ori, gripper_center, toGripperCoordinate);
 			result_viewer->addCoordinateSystem(0.3, toGripperCoordinate.inverse(), "gripper_reference", viewport);
             
@@ -1298,11 +1299,31 @@ int main(int argc, char **argv)
 		geometry_msgs::Quaternion gripper_pose_quat;
 		tf::quaternionTFToMsg(gripper_pose_euler, gripper_pose_quat);
 		
-// 		record_file1 << gripper_center[0] << " " << gripper_center[1] << " " << gripper_center[2] << " " 
-// 										  << gripper_pose_quat.x << " " << gripper_pose_quat.y << " " << gripper_pose_quat.z << " " << gripper_pose_quat.w << std::endl;
 		record_file1 << gripper_center.transpose() << " " << gripper_ori.transpose() << std::endl;
 		record_file1.close();
 		
+		// record plane to gripper transformation in <4x4 affine matrix> format
+		sprintf(buffer, "/home/zengzhen/Desktop/human_teaching/%s/plane_to_gripper.txt", demo_name.c_str());
+		record_file1.open (buffer, ios::app);
+		
+		Eigen::Affine3f planeToGripperCooridnate;
+		planeToGripperCooridnate = toGripperCoordinate*(toPlaneCoordinate.inverse());
+		record_file1 << planeToGripperCooridnate.matrix() << std::endl;
+		record_file1.close();
+		
+		// record plane to gripper in <translation, quaternion> format
+		sprintf(buffer, "/home/zengzhen/Desktop/human_teaching/%s/plane_to_gripper_dmp.txt", demo_name.c_str());
+		record_file1.open (buffer, ios::app);
+		
+		Eigen::Vector3f rot2euler = planeToGripperCooridnate.rotation().eulerAngles(0,1,2);
+		gripper_pose_euler.setRPY(rot2euler[0], rot2euler[1], rot2euler[2]); // mixing EIGEN and TF is bad, this is probably wrong
+		tf::quaternionTFToMsg(gripper_pose_euler, gripper_pose_quat);
+		
+		record_file1 << planeToGripperCooridnate.translation().transpose() << " " << gripper_pose_quat.x
+					 << " " << gripper_pose_quat.y << " " << gripper_pose_quat.z << " " << gripper_pose_quat.w << std::endl;
+		record_file1.close();
+		
+		// record plane to block transformation in <4x4 affine matrix> format
 		for(int i=0; i<planeToBlockCoordinate.size(); i++)
 		{	
 			std::ofstream record_file2;

@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="tf" type="static_transform_publisher" name="kinecttoworld" args="0.207, 0.006, 0.587, 0.057, 0.681, 0.045 /world /camera_temp 100" />
+    <node pkg="tf" type="static_transform_publisher" name="tempkinect" args="0.035 0.068 -0.010 -0.040 -0.078 -0.030 /camera_temp /camera_link 100" />
+</launch>

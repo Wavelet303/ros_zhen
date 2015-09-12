@@ -7,14 +7,17 @@
 #ifndef PI2_H
 #define PI2_H
 
-#include <eigen3/Eigen/Core>
-#include <eigen3/Eigen/Dense>
+#include <Eigen/Core>
+#include <Eigen/Dense>
+#include <Eigen/Geometry>
 #include <vector>
 #include <sstream>
 #include <string>
 #include <fstream>
 #include "dmp.h"
 #include "ros/ros.h"
+#include "tf/transform_listener.h"
+#include "tf/exceptions.h"
 #include "baxter_core_msgs/JointCommand.h"
 #include "baxter_core_msgs/EndEffectorCommand.h"
 #include "baxter_core_msgs/SolvePositionIK.h"
@@ -103,6 +106,11 @@ public:
 	 *  \param[in] dmp_folder_name folder that stores the learned w
 	 */
 	void loadLearnedW(char* dmp_folder_name);
+	
+	/** \brief set _reference_id (block id that was selected as reference frame in MATLAB)
+	 *  \\param[in] dmp_folder_name folder that stores the trajectory
+	 */
+	void setReferenceId(char* dmp_folder_name);
 	
 	/** \brief write learned goal to file
 	 *  \param[in] dmp_folder_name folder to store the learned goal
@@ -199,6 +207,10 @@ private:
 	
 	bool _update_goal;
 	char* _dmp_folder_name;
+	
+	// reference frame from state abstraction selection (MATLAB)
+	int _reference_id;
+	tf::StampedTransform _reference_to_base_transform;
 };
 
 #endif  // PI2_H

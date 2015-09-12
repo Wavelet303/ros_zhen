@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="tf" type="static_transform_publisher" name="cameraTransformer0" args="1.312, 0.180, -0.119, -1.580, 0.000, 0.000 /base /ar_marker_0 100" />
+    <node pkg="tf" type="static_transform_publisher" name="kinecttoworld" args="0.140, -1.082, 0.669, 1.590, 0.618, 0.000 /ar_marker_0 /camera_link 100" />
+</launch>

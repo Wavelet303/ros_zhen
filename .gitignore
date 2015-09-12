@@ -31,3 +31,5 @@ baxter.sh
 .kdev4/
 *~
 *.kdev4
+
+CMakeLists.txt

@@ -20,6 +20,7 @@
 #include "tf/exceptions.h"
 #include "baxter_core_msgs/JointCommand.h"
 #include "baxter_core_msgs/EndEffectorCommand.h"
+#include "baxter_core_msgs/EndEffectorState.h"
 #include "baxter_core_msgs/SolvePositionIK.h"
 #include "baxter_core_msgs/EndpointState.h"
 #include "geometry_msgs/PoseStamped.h"
@@ -68,6 +69,8 @@ struct PI2Data{
 	Eigen::MatrixXd q;
 	Eigen::MatrixXd qd;
 	Eigen::MatrixXd qdd;
+	Eigen::VectorXd gripping;
+	Eigen::VectorXd gripper_state;
 	
 	PI2Data(int steps, int n_dmps, int n_basis, double input_duration, double input_dt, std::vector< double > input_goal)
 	{
@@ -83,6 +86,8 @@ struct PI2Data{
 		q.setZero(steps, n_dmps);
 		qd.setZero(steps, n_dmps);
 		qdd.setZero(steps, n_dmps);
+		gripping.setZero(steps);
+		gripper_state.setZero(steps);
 	}
 };
 
@@ -95,32 +100,46 @@ public:
 	/** \brief read protocol file.
 	*   \param[in] filename 
 	*/
-	void readProtocol(std::string protocol_name);
+	void readProtocol();
+	
+	/** \brief set the id of the segmentated action to learn
+	 *  \\param[in] seg_id
+	 */
+	void setSegId(int seg_id);
+	
+	/** \brief set the dmp folder name
+	 *  \\param[in] dmp_folder_name
+	 */
+	void setDMPfolderName(char* dmp_folder_name);
+	
+	/** \brief load dt
+	 */
+	void loadDt();
 	
 	/** \brief initialize policy parameters (w for DMPs for each DOF) by fitting to demonstration
 	 *  \\param[in] dmp_folder_name folder that stores the trajectory
 	 */
-	void initializeW(char* dmp_folder_name);
+	void initializeW();
 	
 	/** \brief load learned policy parameters (w for DMPs for each DOF)
 	 *  \param[in] dmp_folder_name folder that stores the learned w
 	 */
-	void loadLearnedW(char* dmp_folder_name);
+	void loadLearnedW();
 	
 	/** \brief set _reference_id (block id that was selected as reference frame in MATLAB)
 	 *  \\param[in] dmp_folder_name folder that stores the trajectory
 	 */
-	void setReferenceId(char* dmp_folder_name);
+	void setReferenceId();
 	
 	/** \brief write learned goal to file
 	 *  \param[in] dmp_folder_name folder to store the learned goal
 	 */
-	void writeGoalToFile(char* dmp_folder_name);
+	void writeGoalToFile();
 	
 	/** \brief load learned goal
 	 *  \param[in] dmp_folder_name folder that stores the learned goal
 	 */
-	void loadLearnedGoal(char* dmp_folder_name);
+	void loadLearnedGoal();
 	
 	/** \brief run loaded protocol
 	 */
@@ -193,24 +212,45 @@ private:
 	ros::Publisher _publisher;
 	ros::Publisher _gripper_publiser;
 	ros::Subscriber _subscriber;
+	ros::Subscriber _gripper_subscriber;
 	ros::ServiceClient _client;
 	baxter_core_msgs::SolvePositionIK _srv;
+	baxter_core_msgs::SolvePositionIK _srv_temp;
 	std::vector<geometry_msgs::Pose> _average_ee_pose;
 	std::vector<double> _average_ee_pose_time_stamp;
 	int _ee_record_count;
 	std::vector<double> _ee_current_time;
+	
+	std::vector<int> _gripping;
+	std::vector<bool> _gripper_state;
+	int _gripper_record_count;
 	
 	/** \brief callback function of subscriber on end point pose
 	 *  \param[in] msg received end point pose msg
 	 */
 	void eeStateCallback(const baxter_core_msgs::EndpointState& msg);
 	
+	/** \brief callback function of subscriber on gripper state (gripping etc)
+	 *  \param[in] msg received gripper state
+	 */
+	void gripperStateCallback(const baxter_core_msgs::EndEffectorState& msg);
+	
+	/** \brief listen to static transformation from frame1 to frame2 (frame2, frame1 while listen), output translation, quaternion(in PCL, MATLAB fashion)
+	 *  \param[in] frame1 frame1 id, e.g., "/left_gripper", "/block_link1"
+	 *  \param[in] frame2 frame2 id, e.g. "/block_link0"
+	 *  \param[out] translation translation vector of transformation from frame1 to frame2
+	 *  \param[out] quternion quaternion vector of transformatoin from frame1 to frame2 (in PCL, MATLAB fashion, i.e., rotatoin order is roll,pitch,yaw)
+	 */
+	void listenTransformation(std::string frame1, std::string frame2, Eigen::Vector3f &translation, Eigen::Quaternionf &quaternion);
+	
 	bool _update_goal;
 	char* _dmp_folder_name;
 	
 	// reference frame from state abstraction selection (MATLAB)
+	int _seg_id;
 	int _reference_id;
 	tf::StampedTransform _reference_to_base_transform;
+	bool _penalize_gripping;
 };
 
 #endif  // PI2_H

@@ -106,7 +106,8 @@ add_library(PI2 src/pi2.cpp)
 ## Declare a cpp executable
 add_executable(pi2_example src/tools/pi2_example.cpp)
 add_executable(pi2_baxter src/tools/pi2_baxter.cpp)
-
+add_executable(specify_timeout src/tools/specify_timeout.cpp)
+add_executable(set_speed_ratio src/tools/set_speed_ratio.cpp)
 
 target_link_libraries(
     PI2
@@ -122,6 +123,16 @@ target_link_libraries(
 target_link_libraries(
     pi2_baxter
     PI2
+)
+
+target_link_libraries(
+	specify_timeout
+	${catkin_LIBRARIES}
+)
+
+target_link_libraries(
+	set_speed_ratio
+	${catkin_LIBRARIES}
 )
 
 #############

@@ -27,7 +27,7 @@ std::vector<size_t> sort_indexes(const std::vector<T> &v) {
 	return idx;
 }
 
-PI2::PI2(int n_dmps, int n_basis,  bool update_goal)
+PI2::PI2(int n_dmps, int n_basis, bool update_goal)
 {
 	_n_dmps = n_dmps;
 	_n_basis = n_basis;
@@ -42,16 +42,22 @@ PI2::PI2(int n_dmps, int n_basis,  bool update_goal)
 	
 	//setup ROS related variables
 	_ROS_initialized = false;
-	_ee_record_count = 0;	
+	_ee_record_count = 0;
+	_gripper_record_count = 0;
 	
-	_dt = 0.05;
+// 	_dt = dt; //1; //0.05;
 	
 	_update_goal = update_goal;
+	
+	_penalize_gripping = true;
 }
 
-void PI2::readProtocol(std::string protocol_name)
+void PI2::readProtocol()
 {
-	std::ifstream infile(protocol_name.c_str());
+	char buffer [200];
+	sprintf (buffer, "/home/zengzhen/Desktop/human_teaching/%s/dmps/seg%d/protocol.txt", _dmp_folder_name, _seg_id);
+	
+	std::ifstream infile(buffer);
 	std::string line;
 	
 	while(std::getline(infile, line))
@@ -101,9 +107,28 @@ void PI2::readProtocol(std::string protocol_name)
 			  << _protocol.basis_noise << " " << _protocol.n_reuse << "\n";
 }
 
-void PI2::initializeW(char* dmp_folder_name)
-{	
+void PI2::setSegId(int seg_id)
+{
+	_seg_id = seg_id;
+}
+
+void PI2::setDMPfolderName(char* dmp_folder_name)
+{
 	_dmp_folder_name = dmp_folder_name;
+}
+
+void PI2::loadDt()
+{
+	char buffer [200];
+	sprintf (buffer, "/home/zengzhen/Desktop/human_teaching/%s/dmps/seg%d/dt.txt", _dmp_folder_name, _seg_id);
+	Eigen::MatrixXd read_T;
+	read_T= DMP::readMatrix(buffer, true);
+	_dt = read_T(0);
+}
+
+
+void PI2::initializeW()
+{	
 	
 	Eigen::MatrixXd read_T;
 	for(int i=0; i<_n_dmps; i++)
@@ -112,60 +137,59 @@ void PI2::initializeW(char* dmp_folder_name)
 		/****************************
 		 * kinesthetic teaching
 		 * **************************/
-// 		sprintf (buffer, "/home/zengzhen/Desktop/kinesthetic_teaching/%s/dmp%d_smooth.txt", dmp_folder_name, i);
+// 		std::string kinesthetic_teaching("dmp_grasp_lift");
+// 		sprintf (buffer, "/home/zengzhen/Desktop/kinesthetic_teaching/%s/dmp%d_smooth.txt", kinesthetic_teaching.c_str(), i);
 // 		read_T= _dmps[i].readMatrix(buffer, false);
 		
 		/****************************
 		 * external observation
 		 * **************************/
-		sprintf (buffer, "/home/zengzhen/Desktop/human_teaching/%s/dmps/seg%d/dmp%d.txt", dmp_folder_name, 0, i);
+		sprintf (buffer, "/home/zengzhen/Desktop/human_teaching/%s/dmps/seg%d/dmp%d.txt", _dmp_folder_name, _seg_id, i);
 		read_T= _dmps[i].readMatrix(buffer, true);
 // 		std::cout << "read file T = " << read_T << std::endl; 
 		
 		Eigen::Map<Eigen::VectorXd> T(read_T.data(),read_T.cols()*read_T.rows(),1);
-		_dmps[i].batch_fit(0.01*T.size(), 0.01, T); //0.01s corresponds to 100Hz at which endpoint state is published/received
+		_dmps[i].batch_fit(_dt*T.size(), _dt, T); //0.01s corresponds to 100Hz at which endpoint state is published/received
 	}
 	
-	//if _n_dmps == 8, i.e., ee_position(3) + ee_orientation(4) + delta_close (1)
+	//if _n_dmps == 8, i.e., ee_position(3) + ee_orientation(4) + holding force (1)
 	if(_n_dmps==8)
 	{
-		Eigen::MatrixXd close_gripper_delta_function(1,read_T.cols());
-		int jump_index = 10;
-		for(int i=0; i<jump_index; i++)
-		{
-			close_gripper_delta_function(i)=0;
-		}
-		for(int i=jump_index; i<read_T.cols(); i++)
-		{
-			close_gripper_delta_function(i)=0;
-		}
+// 		Eigen::MatrixXd close_gripper_delta_function(1,read_T.cols());
+// 		int jump_index = 10;
+// 		for(int i=0; i<jump_index; i++)
+// 		{
+// 			close_gripper_delta_function(i)=0;
+// 		}
+// 		for(int i=jump_index; i<read_T.cols(); i++)
+// 		{
+// 			close_gripper_delta_function(i)=0;
+// 		}
 	}
 }
 
-void PI2::loadLearnedW(char* dmp_folder_name)
+void PI2::loadLearnedW()
 {
-	_dmp_folder_name = dmp_folder_name;
 	for(int i=0; i<_n_dmps; i++)
 	{
-		_dmps[i].loadWFromFile(dmp_folder_name, i);
+		_dmps[i].loadWFromFile(_dmp_folder_name, i);
 	}
 }
 
-void PI2::setReferenceId(char* dmp_folder_name)
+void PI2::setReferenceId()
 {
 	char buffer [200];
-	sprintf (buffer, "/home/zengzhen/Desktop/human_teaching/%s/dmps/seg%d/reference_id.txt", dmp_folder_name, 0);
+	sprintf (buffer, "/home/zengzhen/Desktop/human_teaching/%s/dmps/seg%d/reference_id.txt", _dmp_folder_name, _seg_id);
 	Eigen::MatrixXd read_T;
 	read_T= DMP::readMatrix(buffer, true);
 	_reference_id = read_T(0);
 }
 
 
-void PI2::writeGoalToFile(char* dmp_folder_name)
+void PI2::writeGoalToFile()
 {
-	_dmp_folder_name = dmp_folder_name;
-	char buffer [100];
-	sprintf (buffer, "/home/zengzhen/Desktop/kinesthetic_teaching/%s/goal_learned.txt", dmp_folder_name);
+	char buffer [200];
+	sprintf (buffer, "/home/zengzhen/Desktop/human_teaching/%s/dmps/seg%d/goal_learned.txt", _dmp_folder_name, _seg_id);
 	std::ofstream fout;
 	fout.open(buffer);
 	
@@ -176,11 +200,10 @@ void PI2::writeGoalToFile(char* dmp_folder_name)
 	fout.close();
 }
 
-void PI2::loadLearnedGoal(char* dmp_folder_name)
+void PI2::loadLearnedGoal()
 {
-	_dmp_folder_name = dmp_folder_name;
-	char buffer [100];
-	sprintf (buffer, "/home/zengzhen/Desktop/kinesthetic_teaching/%s/goal_learned.txt", dmp_folder_name);
+	char buffer [200];
+	sprintf (buffer, "/home/zengzhen/Desktop/human_teaching/%s/dmps/seg%d/goal_learned.txt", _dmp_folder_name, _seg_id);
 	
 	Eigen::MatrixXd temp_matrix = DMP::readMatrix(buffer, false);
 	Eigen::VectorXd temp_vector = temp_matrix.transpose();
@@ -198,13 +221,14 @@ void PI2::setROSNodeHandle(ros::NodeHandle& n)
 	_gripper_publiser = n.advertise<baxter_core_msgs::EndEffectorCommand>("/robot/end_effector/left_gripper/command", 1);
 	_client = n.serviceClient<baxter_core_msgs::SolvePositionIK>("/ExternalTools/left/PositionKinematicsNode/IKService");
 	_subscriber = _n.subscribe("/robot/limb/left/endpoint_state", 100, &PI2::eeStateCallback, this);
+	_gripper_subscriber = _n.subscribe("/robot/end_effector/left_gripper/state", 100, &PI2::gripperStateCallback, this);
 }
 
 
 void PI2::runProtocol()
 {
 	double dt = _dt;
-	int n = 1.5*(int)round(_protocol.duration / dt);
+	int n = 1.1*(int)round(_protocol.duration / dt);
 	
 	PI2Data D(n, _n_dmps, _n_basis, _protocol.duration, dt, _protocol.goal);
 	
@@ -332,7 +356,7 @@ void PI2::runProtocol()
 		for(int i=0; i<(int)_protocol.goal.size(); i++)
 			std::cout << _protocol.goal[i] << " ";
 		std::cout<< std::endl;
-		writeGoalToFile(_dmp_folder_name);
+		writeGoalToFile();
 	}
 }
 
@@ -372,48 +396,32 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 	// generate desired trajectory
 	for(int k = start; k<p.reps; k++ )
 	{
-		// get current endpoint pose in reference frame
-		tf::TransformListener listener;
-		ros::Rate rate(10.0);
-		bool receivedTransformation = false;
+		//move to start position first and wait for the scene to be ready
+// 		ros::Time back_to_start = ros::Time::now();
+// 		double wait_ready = 5; //5 is safe
+// 		baxter_core_msgs::JointCommand msg;
+// 		msg.mode = baxter_core_msgs::JointCommand::POSITION_MODE;
+// 		if(_srv.response.isValid[0]) 
+// 		{
+// 			msg.names = _srv.response.joints[0].name;
+// 			msg.names.push_back("left_gripper");
+// 			msg.command = _srv.response.joints[0].position;
+// 			msg.command.push_back(0.0);
+// 		}else{
+// 			std::cout << "invalid position at step 0" << std::endl;
+// 			exit(1);
+// 		}
+// 		while((ros::Time::now()-back_to_start).toSec()<wait_ready)
+// 		{
+// 			_publisher.publish(msg);
+// 		}
+		
+		// get current endpoint pose in reference frame		
 		std::stringstream block_link_id; 
 		block_link_id << "block_link" << _reference_id;
-		tf::StampedTransform transform;
-		while (!receivedTransformation)
-		{
-			receivedTransformation = true;
-			try{
-				listener.lookupTransform(block_link_id.str(), "/left_gripper", ros::Time(0), transform);
-// 				listener.lookupTransform("/camera_link", block_link_id.str(), ros::Time(0), transform); // only here for validation
-			}
-			catch (tf::TransformException ex){
-				ROS_ERROR("%s",ex.what());
-				ros::Duration(1.0).sleep();
-				receivedTransformation = false;
-			}
-			
-// 			if(receivedTransformation)
-// 			{
-// 				std::cout << "rotation = " << std::endl;
-// 				std::cout << transform.getBasis().getRow(0).getX() << " " << transform.getBasis().getRow(0).getY() << " " << transform.getBasis().getRow(0).getZ() << std::endl;
-// 				std::cout << transform.getBasis().getRow(1).getX() << " " << transform.getBasis().getRow(1).getY() << " " << transform.getBasis().getRow(1).getZ() << std::endl;
-// 				std::cout << transform.getBasis().getRow(2).getX() << " " << transform.getBasis().getRow(2).getY() << " " << transform.getBasis().getRow(2).getZ() << std::endl;
-// 				std::cout << "translation = " << transform.getOrigin().getX() << " " << transform.getOrigin().getY() << " " << transform.getOrigin().getZ() << std::endl;
-// 			}
-			rate.sleep();
-		}
-		
-		// change the starting pose (expressed in PCL, MATLAB fashion): current pose in selected block reference frame
-		// NOTE ROS takes in quaternion for (roll, pitch, yaw) but the rotation order is yaw,pitch,roll, which is the opposite from PCL, MATLAB
-		Eigen::Affine3f gripperToBlockTransformation;
-		gripperToBlockTransformation.matrix() << transform.getBasis().getRow(0).getX(), transform.getBasis().getRow(0).getY(), transform.getBasis().getRow(0).getZ(), transform.getOrigin().getX(),
-										transform.getBasis().getRow(1).getX(), transform.getBasis().getRow(1).getY(), transform.getBasis().getRow(1).getZ(), transform.getOrigin().getY(),
-										transform.getBasis().getRow(2).getX(), transform.getBasis().getRow(2).getY(), transform.getBasis().getRow(2).getZ(), transform.getOrigin().getZ(),
-										0,0,0,1;
-		std::cout << gripperToBlockTransformation.matrix() << std::endl;
-		
-		Eigen::Vector3f translation = gripperToBlockTransformation.translation();
-		Eigen::Quaternionf quaternion(gripperToBlockTransformation.rotation());
+		Eigen::Vector3f translation;
+		Eigen::Quaternionf quaternion;
+		listenTransformation(std::string("/left_gripper"), block_link_id.str(), translation, quaternion);
 // 		p.start[0] = translation[0];
 // 		p.start[1] = translation[1];
 // 		p.start[2] = translation[2];
@@ -422,15 +430,20 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 // 		p.start[5] = quaternion.z();
 // 		p.start[6] = quaternion.w();
 		
-// 		tf::Quaternion gripper_quat = transform.getRotation();
-// 		tf::Vector3 gripper_trans = transform.getOrigin();
-// 		p.start[0] = gripper_trans.getX();
-// 		p.start[1] = gripper_trans.getY();
-// 		p.start[2] = gripper_trans.getZ();
-// 		p.start[3] = gripper_quat.getX();
-// 		p.start[4] = gripper_quat.getY();
-// 		p.start[5] = gripper_quat.getZ();
-// 		p.start[6] = gripper_quat.getW();
+		std::cout << "starting position (PCL):" << translation.transpose() << " " << quaternion.x() << " " << quaternion.y() << " "
+				  << quaternion.z() << " " << quaternion.w() << std::endl;
+		std::cout << "(no exploration)goal position (PCL):" << p.goal[0] << " " << p.goal[1] << " " << p.goal[2] << " " 
+				  << p.goal[3] << " " << p.goal[4] << " " << p.goal[5] << " " << p.goal[6] << std::endl;
+		
+		// 		tf::Quaternion gripper_quat = transform.getRotation();
+		// 		tf::Vector3 gripper_trans = transform.getOrigin();
+		// 		p.start[0] = gripper_trans.getX();
+		// 		p.start[1] = gripper_trans.getY();
+		// 		p.start[2] = gripper_trans.getZ();
+		// 		p.start[3] = gripper_quat.getX();
+		// 		p.start[4] = gripper_quat.getY();
+		// 		p.start[5] = gripper_quat.getZ();
+		// 		p.start[6] = gripper_quat.getW();
 		
 		//reset the DMP
 		double goal_pos_exploration = 0.03*noise_mult;
@@ -582,8 +595,10 @@ void PI2::run_rollouts(std::vector<PI2Data>& D, PI2Protocol p, double noise_mult
 // 			}
 			
 			//run generated desired trajectory on Baxter
+			bool ready_dummy;
+			std::cout << "Ready to go? ";
+			std::cin >> ready_dummy;
 			run_baxter(D, k);
-			exit(1);
 		}
 	}
 }
@@ -595,8 +610,11 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 	{	
 		_ee_current_time.clear();
 		_average_ee_pose.clear();
+		_gripping.clear();
+		_gripper_state.clear();
 		_average_ee_pose_time_stamp.clear();
 		_ee_record_count = 0;
+		_gripper_record_count = 0;
 		for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
 		{
 			geometry_msgs::Pose pose;
@@ -610,17 +628,25 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 			_average_ee_pose.push_back(pose);
 			
 			_average_ee_pose_time_stamp.push_back(0);
+			
+			_gripping.push_back(false);
+			_gripper_state.push_back(false);
 		}
 		
 		baxter_core_msgs::JointCommand msg;
 		msg.mode = baxter_core_msgs::JointCommand::POSITION_MODE;
 		
 		_srv.request.pose_stamp.clear();
+		//record whether IK returns successfully
+// 		bool all_valid = false;
+		std::vector<bool> valid_pose;
+		for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
+			valid_pose.push_back(false);
 		
 		//command previously generated trajectory to Baxter
 		for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
 		{		
-			//TODO convert PCL/MATLAB fashion quaternion into ROS TF fashion quaternion
+			//convert PCL/MATLAB fashion quaternion into ROS TF fashion quaternion
 			//NOTE ROS takes in quaternion for (roll, pitch, yaw) but the rotation order is yaw,pitch,roll, which is the opposite from PCL, MATLAB
 			Eigen::Quaternionf eigen_quaternion(D[trial_index].dmp[3].y(n), D[trial_index].dmp[4].y(n), D[trial_index].dmp[5].y(n), D[trial_index].dmp[6].y(n));
 			Eigen::Matrix3f eigen_rotation_matrix = eigen_quaternion.toRotationMatrix();
@@ -629,40 +655,73 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 											 eigen_rotation_matrix(2,0), eigen_rotation_matrix(2,1), eigen_rotation_matrix(2,2));
 			tf::Quaternion tf_quaterion;
 			tf_rotation_matrix.getRotation(tf_quaterion);
-// 			D[trial_index].dmp[3].y(n) = tf_quaterion.getX();
-// 			D[trial_index].dmp[4].y(n) = tf_quaterion.getY();
-// 			D[trial_index].dmp[5].y(n) = tf_quaterion.getZ();
-// 			D[trial_index].dmp[6].y(n) = tf_quaterion.getW();
+			D[trial_index].dmp[3].y(n) = tf_quaterion.getX();
+			D[trial_index].dmp[4].y(n) = tf_quaterion.getY();
+			D[trial_index].dmp[5].y(n) = tf_quaterion.getZ();
+			D[trial_index].dmp[6].y(n) = tf_quaterion.getW();
 			
 			//construct left limb endpoint msg (all DOFs at the same time step)
 			geometry_msgs::PoseStamped ee_pose;
 			ee_pose.header.stamp = ros::Time::now();
-// 			ee_pose.header.frame_id = "base";
 			std::stringstream block_link_id; 
 			block_link_id << "block_link" << _reference_id;
 			ee_pose.header.frame_id = block_link_id.str();
 			
-// 			ee_pose.pose.position.x = D[trial_index].dmp[0].y(n);
-// 			ee_pose.pose.position.y = D[trial_index].dmp[1].y(n);
-// 			ee_pose.pose.position.z = D[trial_index].dmp[2].y(n);
-// 			ee_pose.pose.orientation.x = D[trial_index].dmp[3].y(n);
-// 			ee_pose.pose.orientation.y = D[trial_index].dmp[4].y(n);
-// 			ee_pose.pose.orientation.z = D[trial_index].dmp[5].y(n);
-// 			ee_pose.pose.orientation.w = D[trial_index].dmp[6].y(n);
+			ee_pose.pose.position.x = D[trial_index].dmp[0].y(n);
+			ee_pose.pose.position.y = D[trial_index].dmp[1].y(n);
+			ee_pose.pose.position.z = D[trial_index].dmp[2].y(n);
+			ee_pose.pose.orientation.x = D[trial_index].dmp[3].y(n);
+			ee_pose.pose.orientation.y = D[trial_index].dmp[4].y(n);
+			ee_pose.pose.orientation.z = D[trial_index].dmp[5].y(n);
+			ee_pose.pose.orientation.w = D[trial_index].dmp[6].y(n);
+			
+			//test call & find close pose that is valid
+// 			while(!valid_pose[n])
+// 			{
+// 				_srv_temp.request.pose_stamp.clear();
+// 				_srv_temp.request.pose_stamp.push_back(ee_pose);
+// 				if (_client.call(_srv_temp))
+// 				{
+// 					if(_srv_temp.response.isValid[0])
+// 						valid_pose[n] = true;
+// 					else{
+// 						std::cout << "finding valid positions for step " << n << std::endl;
+// 						ee_pose.pose.position.x = D[trial_index].dmp[0].y(n) + ((double)(rand()/RAND_MAX))*0.01;
+// 						ee_pose.pose.position.y = D[trial_index].dmp[1].y(n) + ((double)(rand()/RAND_MAX))*0.01;
+// 						ee_pose.pose.position.z = D[trial_index].dmp[2].y(n) + ((double)(rand()/RAND_MAX))*0.01;
+// 						ee_pose.pose.orientation.x = D[trial_index].dmp[3].y(n) + ((double)(rand()/RAND_MAX))*0.2;
+// 						ee_pose.pose.orientation.y = D[trial_index].dmp[4].y(n) + ((double)(rand()/RAND_MAX))*0.2;
+// 						ee_pose.pose.orientation.z = D[trial_index].dmp[5].y(n) + ((double)(rand()/RAND_MAX))*0.2;
+// 						ee_pose.pose.orientation.w = D[trial_index].dmp[6].y(n) + ((double)(rand()/RAND_MAX))*0.2;
+// 					}
+// 				}
+// 				else
+// 				{
+// 					ROS_ERROR("Failed to call service IK");
+// 					exit(1);
+// 				}
+// 			}
 			
 			//DEBUG: test whether the starting position is configured correctly
 			//RESULT: yes, correct
-			ee_pose.pose.position.x = D[trial_index].dmp[0].y(0);
-			ee_pose.pose.position.y = D[trial_index].dmp[1].y(0);
-			ee_pose.pose.position.z = D[trial_index].dmp[2].y(0);
-			ee_pose.pose.orientation.x = D[trial_index].dmp[3].y(0);
-			ee_pose.pose.orientation.y = D[trial_index].dmp[4].y(0);
-			ee_pose.pose.orientation.z = D[trial_index].dmp[5].y(0);
-			ee_pose.pose.orientation.w = D[trial_index].dmp[6].y(0);
+// 			ee_pose.pose.position.x = D[trial_index].dmp[0].y(0);
+// 			ee_pose.pose.position.y = D[trial_index].dmp[1].y(0);
+// 			ee_pose.pose.position.z = D[trial_index].dmp[2].y(0);
+// 			ee_pose.pose.orientation.x = D[trial_index].dmp[3].y(0);
+// 			ee_pose.pose.orientation.y = D[trial_index].dmp[4].y(0);
+// 			ee_pose.pose.orientation.z = D[trial_index].dmp[5].y(0);
+// 			ee_pose.pose.orientation.w = D[trial_index].dmp[6].y(0);
 			
 			//call IKService to get desired joint positions
 			_srv.request.pose_stamp.push_back(ee_pose);
 		}
+		
+		int y_size = D[trial_index].dmp[0].y.size();
+		std::cout << "starting position: " << D[trial_index].dmp[0].y(0) << " " << D[trial_index].dmp[1].y(0) << " " << D[trial_index].dmp[2].y(0) 
+										   << D[trial_index].dmp[3].y(0) << " " << D[trial_index].dmp[4].y(0) << " " << D[trial_index].dmp[5].y(0) << " " << D[trial_index].dmp[6].y(0) <<std::endl;
+		std::cout << "ending position: " << D[trial_index].dmp[0].y(y_size-1) << " " << D[trial_index].dmp[1].y(y_size-1) << " " << D[trial_index].dmp[2].y(y_size-1)
+										 << D[trial_index].dmp[3].y(y_size-1) << " " << D[trial_index].dmp[4].y(y_size-1) << " " << D[trial_index].dmp[5].y(y_size-1) 
+										 << " " << D[trial_index].dmp[6].y(y_size-1) <<std::endl;
 		
 		if (_client.call(_srv))
 		{
@@ -690,35 +749,44 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 		}
 		else
 		{
-			ROS_ERROR("Failed to call service add_two_ints");
+			ROS_ERROR("Failed to call service IK");
 			exit(1);
 		}
 			
 		ros::Time begin = ros::Time::now();
-		double time_offset = 2; //5 is safe
+		double time_offset = 5;
 		
 		for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
 		{
+			//command msg only when current joint solution is valid)
+			
 			time_offset = time_offset + D[trial_index].dt;
 			
-			//construct left limb joint positions msg
-			msg.names = _srv.response.joints[n].name;
-			msg.names.push_back("left_gripper");
-			msg.command = _srv.response.joints[n].position;
-			msg.command.push_back(100.0);
+			//construct left limb joint positions msg 
+			if(_srv.response.isValid[n]) 
+			{
+				msg.names = _srv.response.joints[n].name;
+				msg.names.push_back("left_gripper");
+				msg.command = _srv.response.joints[n].position;
+				msg.command.push_back(0.0);
+			}else
+				std::cout << "invalid position at step " << n << " out of n=0~" << D[trial_index].dmp[0].y.size()-1 << std::endl;
 			
 // 			std::cout << "**********************run baxter*********************************" << std::endl;
 // 			std::cout << "current time from starting time = " << (ros::Time::now()-begin).toSec() << std::endl;
 // 			std::cout << "time_offset = " << time_offset << std::endl;
 			//command Baxter to the desired joint position
 			_ee_current_time.push_back(begin.toSec()+time_offset);
+			ros::Rate joint_publish_rate(100);
 			while((ros::Time::now()-begin).toSec()<time_offset)
 			{
-				_publisher.publish(msg);
 				ros::AsyncSpinner spinner(4); // Use 4 threads
 				spinner.start();
+				_publisher.publish(msg);
 				spinner.stop();
+// 				joint_publish_rate.sleep();
 			}
+		
 			
 // 			if(n==10)
 // 			{
@@ -739,6 +807,16 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 			std::cout << "Lost some poses at some requested time stamp\n";
 			exit(1);
 		}
+		
+		// gipper state is published way slower than endpoint state (~1Hz)
+		
+		
+// 		if(_gripper_record_count != (int)_gripping.size())
+// 		{
+// 			std::cout << _gripper_record_count << std::endl;
+// 			std::cout << "Lost some gripper state at some requested time stamp\n";
+// 			exit(1);
+// 		}
 		
 // 		for(int n=0; n<D[trial_index].dmp[0].y.size(); n++)
 // 		{
@@ -803,8 +881,66 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 		double terminal_cost = 0.0;
 		if(_update_goal)
 		{
-			std::cout << "Please enter terminal cost: ";
-			std::cin >> terminal_cost;
+// 			std::cout << "Please enter terminal cost: ";
+// 			std::cin >> terminal_cost;
+			
+			//read in desired effect generated by MATLAB
+			char buffer[200];
+			Eigen::MatrixXd read_T;
+			sprintf (buffer, "/home/zengzhen/Desktop/human_teaching/%s/dmps/seg%d/desired_effect.txt", _dmp_folder_name, _seg_id);
+			read_T= DMP::readMatrix(buffer, true);
+			
+			//compare current relevant object pose with the one recorded
+			//listen transformation from gripper to reference, and convert to PCL, MATLAB quaternoin fashion
+			std::stringstream block_link_id; 
+			block_link_id << "block_link" << _reference_id;
+			Eigen::Vector3f translation;
+			Eigen::Quaternionf quaternion;
+			listenTransformation(std::string("/left_gripper"), block_link_id.str(), translation, quaternion);
+			std::cout << "acheived effect: ";
+			std::cout << translation.transpose() << " ";
+			std::cout << quaternion.x() << " " << quaternion.y() << " " << quaternion.z() << " " << quaternion.w() << std::endl;
+			
+			Eigen::Vector3f desired_translation(read_T(0),read_T(1),read_T(2));
+			Eigen::Vector4f desired_quaternion(read_T(3),read_T(4),read_T(5),read_T(6));
+			Eigen::Vector4f actual_quaternion(quaternion.x(),quaternion.y(),quaternion.z(),quaternion.w());
+			std::cout << "desired effect: ";
+			std::cout << desired_translation.transpose() << " ";
+			std::cout << desired_quaternion[0] << " " << desired_quaternion[1] << " " << desired_quaternion[2] << " " << desired_quaternion[3] << std::endl;
+			
+			float scale = 100;
+			terminal_cost += scale*(desired_translation-translation).cwiseAbs().sum();
+			terminal_cost += scale*0.11f*((desired_quaternion-actual_quaternion).cwiseAbs().sum()); //difference in 5 degrees penalize simiarly to 1cm difference
+			
+			std::cout << "terminal_cost = " << terminal_cost << std::endl;
+			
+			//listen transformation from other relevant objects to reference, and converto PCL, MATLAB quaternion fashion
+			//NOTE only deal with two objects right now
+			if(read_T.rows()>7)
+			{
+				_penalize_gripping = false;
+				
+				int relevant_id;
+				if(_reference_id==0)
+					relevant_id=1;
+				else if(_reference_id==1)
+					relevant_id=0;
+				
+				std::stringstream relevant_object_id; 
+				relevant_object_id << "block_link" << relevant_id;
+				listenTransformation(relevant_object_id.str(), block_link_id.str(), translation, quaternion);
+				std::cout << translation.transpose() << std::endl;
+				std::cout << quaternion.x() << " " << quaternion.y() << " " << quaternion.z() << " " << quaternion.w() << std::endl;
+				
+				desired_translation = Eigen::Vector3f(read_T(7),read_T(8),read_T(9));
+				desired_quaternion = Eigen::Vector4f(read_T(10),read_T(11),read_T(12),read_T(13));
+				actual_quaternion = Eigen::Vector4f(quaternion.x(),quaternion.y(),quaternion.z(),quaternion.w());
+				
+				terminal_cost += scale*(desired_translation-translation).cwiseAbs().sum();
+				terminal_cost += scale*0.11f*((desired_quaternion-actual_quaternion).cwiseAbs().sum()); //difference in 5 degrees penalize simiarly to 1cm difference
+				
+				std::cout << "terminal_cost = " << terminal_cost << std::endl;
+			}
 		}
 		D[trial_index].user_input_cost = terminal_cost;
 
@@ -819,6 +955,9 @@ void PI2::run_baxter(std::vector<PI2Data>& D, int trial_index)
 			D[trial_index].q(n, 4) = _average_ee_pose[n].orientation.y;
 			D[trial_index].q(n, 5) = _average_ee_pose[n].orientation.z;
 			D[trial_index].q(n, 6) = _average_ee_pose[n].orientation.w;
+			
+			D[trial_index].gripping(n) = _gripping[n];
+			D[trial_index].gripper_state(n) = _gripper_state[n];
 		}
 		
 		//store D[trial_index]: qd
@@ -873,7 +1012,7 @@ Eigen::MatrixXd PI2::cost(std::vector< PI2Data > D)
 		r.setZero(n_real);
 		rt.setZero(n-n_real);
 		
-		for(int i=0; i<_n_dmps; i++)
+		for(int i=0; i<7; i++)
 		{
 			//cost during trajectory
 // 			if(_n_dmps<7)
@@ -911,6 +1050,30 @@ Eigen::MatrixXd PI2::cost(std::vector< PI2Data > D)
 // 				std::cout << "sum(qdd.^2) = " << qdd.sum() << std::endl;
 				
 // 			}
+		}
+		
+		// cost based on whether hand needs to grip something
+		Eigen::VectorXd gripping = D[k].gripping.block(0,0,n_real,1);
+		if(_penalize_gripping)
+			r = r + 0.01*gripping;
+		else{
+			Eigen::VectorXd row_ones;
+			row_ones.setOnes(n_real);
+			r = r + 0.01*(row_ones-gripping);
+		}
+		
+		// if holding force is part of policy parameter
+		if(_n_dmps==8)
+		{
+			// action cost of closing/opening gripper
+			Eigen::VectorXd gripper_state = D[k].gripper_state.block(0,0,n_real,1);
+			Eigen::VectorXd diff_gripper_state;
+			diff_gripper_state.setZero(n_real);
+			diff_gripper_state.block(0,0,n_real-1,1) =gripper_state.block(1,0,n_real-1,1);
+			diff_gripper_state = diff_gripper_state - gripper_state;
+			diff_gripper_state(n_real-1) = 0;
+			diff_gripper_state = diff_gripper_state.cwiseAbs();
+			r = r + 5*diff_gripper_state;
 		}
 		
 		if(_update_goal)
@@ -1153,6 +1316,94 @@ void PI2::eeStateCallback(const baxter_core_msgs::EndpointState& msg)
 	}
 }
 
+void PI2::gripperStateCallback(const baxter_core_msgs::EndEffectorState& msg)
+{
+	if((int)_ee_current_time.size()>_gripper_record_count)
+	{
+		if( std::abs((double)(msg.timestamp.toSec() - _ee_current_time[_gripper_record_count])) <0.01 ) // & ((msg.header.stamp - _ee_current_time).toSec() >=0) )
+		{
+			// 			std::cout << "********************eeStateCallback******************************" << std::endl;
+			// 			std::cout << "ask for ee pose at time " << _ee_current_time[_ee_record_count] << std::endl;
+			// 			std::cout << "get ee pose at time " << msg.header.stamp.toSec() << std::endl;
+			// 			std::cout << "time difference is " << (double)(msg.header.stamp.toSec() - _ee_current_time[_ee_record_count]) << std::endl;
+			
+			// 		std::cout << "callback here: count = " << _ee_record_count << std::endl;
+			// 		printf("position: %f, %f, %f\n", msg.pose.position.x, msg.pose.position.y, msg.pose.position.z);
+			// 		printf("orientation: %f, %f, %f, %f\n", msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w);
+			
+			// 		_average_ee_pose.position.x += msg.pose.position.x;
+			// 		_average_ee_pose.position.y += msg.pose.position.y;
+			// 		_average_ee_pose.position.z += msg.pose.position.z;
+			// 		
+			// 		_average_ee_pose.orientation.x += msg.pose.orientation.x;
+			// 		_average_ee_pose.orientation.y += msg.pose.orientation.y;
+			// 		_average_ee_pose.orientation.z += msg.pose.orientation.z;
+			// 		_average_ee_pose.orientation.w += msg.pose.orientation.w;
+			
+			_gripping[_gripper_record_count] = msg.gripping;
+			if(msg.position > 90.0f)
+				_gripper_state[_gripper_record_count] = false;
+			else
+				_gripper_state[_gripper_record_count] = true;
+			
+// 			_average_ee_pose_time_stamp[_gripper_record_count] = (double)msg.header.stamp.toSec();
+			
+			_gripper_record_count++;
+		}
+	}
+}
+
+void PI2::listenTransformation(std::string frame1, std::string frame2, Eigen::Vector3f& translation, Eigen::Quaternionf& quaternion)
+{
+	// get current frame1 pose in reference frame2
+	tf::TransformListener listener;
+	ros::Rate rate(10.0);
+	bool receivedTransformation = false;
+	tf::StampedTransform transform;
+	while (!receivedTransformation)
+	{
+		receivedTransformation = true;
+		try{
+			listener.lookupTransform(frame2, frame1, ros::Time(0), transform);
+			// 				listener.lookupTransform("/camera_link", block_link_id.str(), ros::Time(0), transform); // only here for validation
+		}
+		catch (tf::TransformException ex){
+			ROS_ERROR("%s",ex.what());
+			ros::Duration(1.0).sleep();
+			receivedTransformation = false;
+		}
+		
+		// 			if(receivedTransformation)
+		// 			{
+		// 				std::cout << "rotation = " << std::endl;
+		// 				std::cout << transform.getBasis().getRow(0).getX() << " " << transform.getBasis().getRow(0).getY() << " " << transform.getBasis().getRow(0).getZ() << std::endl;
+		// 				std::cout << transform.getBasis().getRow(1).getX() << " " << transform.getBasis().getRow(1).getY() << " " << transform.getBasis().getRow(1).getZ() << std::endl;
+		// 				std::cout << transform.getBasis().getRow(2).getX() << " " << transform.getBasis().getRow(2).getY() << " " << transform.getBasis().getRow(2).getZ() << std::endl;
+		// 				std::cout << "translation = " << transform.getOrigin().getX() << " " << transform.getOrigin().getY() << " " << transform.getOrigin().getZ() << std::endl;
+		// 			}
+		rate.sleep();
+	}
+	
+	// change the starting pose (expressed in PCL, MATLAB fashion): current pose in selected block reference frame
+	// NOTE ROS takes in quaternion for (roll, pitch, yaw) but the rotation order is yaw,pitch,roll, which is the opposite from PCL, MATLAB
+	Eigen::Affine3f gripperToBlockTransformation;
+	gripperToBlockTransformation.matrix() << transform.getBasis().getRow(0).getX(), transform.getBasis().getRow(0).getY(), transform.getBasis().getRow(0).getZ(), transform.getOrigin().getX(),
+	transform.getBasis().getRow(1).getX(), transform.getBasis().getRow(1).getY(), transform.getBasis().getRow(1).getZ(), transform.getOrigin().getY(),
+	transform.getBasis().getRow(2).getX(), transform.getBasis().getRow(2).getY(), transform.getBasis().getRow(2).getZ(), transform.getOrigin().getZ(),
+	0,0,0,1;
+	std::cout << frame1 << " to " << frame2 << "transformation:\n"; 
+	std::cout << gripperToBlockTransformation.matrix() << std::endl;
+	
+	translation = gripperToBlockTransformation.translation();
+	quaternion = Eigen::Quaternionf(gripperToBlockTransformation.rotation());
+	
+	Eigen::Quaternionf correct_quaternion;
+	correct_quaternion.x() = quaternion.w();
+	correct_quaternion.y() = quaternion.x();
+	correct_quaternion.z() = quaternion.y();
+	correct_quaternion.w() = quaternion.z();
+	quaternion = correct_quaternion;
+}
 
 
 

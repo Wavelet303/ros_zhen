@@ -389,6 +389,8 @@ Eigen::MatrixXd DMP::readMatrix(const char *filename, bool fromMatlab)
 	if(fromMatlab)
 		rows--;
 	
+	std::cout << "read file: matrix size = " << rows << " " << cols << std::endl;
+	
 	// Populate matrix with numbers.
 	Eigen::MatrixXd result(rows,cols);
 	for (int i = 0; i < rows; i++)

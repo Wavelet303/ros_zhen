@@ -1,0 +1,11 @@
+<launch>
+
+  <include file="$(find table_object)/launch/baxter_kinect_link_correct.launch"/>
+  
+  <include file="$(find openni_launch)/launch/openni_depth.launch" />
+  
+  <node name="rviz" pkg="rviz" type="rviz" args="-d /home/zengzhen/.rviz/block_world.rviz" respawn="true" output="screen">
+  </node>
+  
+
+</launch>
